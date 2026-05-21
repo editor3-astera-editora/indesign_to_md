@@ -109,11 +109,6 @@ Cobertura de testes mínima **80%** — política do projeto, gate no CI.
 
 `config/styles.default.yaml` define o mapeamento padrão de ParagraphStyle/CharacterStyle. Para coleções específicas, criar `config/styles.<colecao>.yaml` (deep-merge sobre o default).
 
-## Licença
-
-MIT.
-
-
 python -m idml_to_md.cli convert "Indesign_exemplos/81_Matemática Financeira.idml" -o out --inkscape "C:/Users/Luiz.barros/Inkscape/PFiles64/Inkscape/bin/inkscape.exe"
 
 python -m idml_to_md.cli convert "Indesign_exemplos/81_Matemática Financeira.idml" -o out
