@@ -57,6 +57,43 @@ idml2md batch ./books/ -o ./out/ --workers 8 --report agregado.json
 
 > Os subcomandos acima entram nas Fases F1–F4. Veja `tests/README.md` e o plano em `~/.claude/plans/fuzzy-moseying-lampson.md`.
 
+## Tradução em lote (fila)
+
+`idml-translate` traduz **um** livro (PT→ES) preservando o layout para reabrir no
+InDesign. Para processar **vários** livros de uma vez, use `idml-queue`.
+
+Organize os livros pendentes em `Input/`, uma subpasta por livro:
+
+```
+Input/<Livro>/
+  <Livro>.idml
+  <Livro>.indd
+  Links/
+  Document fonts/
+```
+
+Rode a fila (requer `OPENAI_API_KEY` no `.env`):
+
+```bash
+idml-queue                 # usa Input/, Output/, FEITOS/, FALHAS/ (defaults)
+idml-queue --dry-run       # só extrai segmentos por livro (sem OpenAI, sem arquivar)
+idml-queue -i Input -o Output --done FEITOS --failed FALHAS -c config/translation.yaml
+```
+
+Para cada livro, a saída de entrega (pronta para o InDesign) fica em:
+
+```
+Output/<Livro>/
+  Document fonts/        ← cópia
+  Links/                 ← cópia
+  <Livro>_es.idml        ← IDML traduzido
+  out/                   ← segments/translations/_translation_report/_completeness + XMLs
+```
+
+Ao **concluir**, a subpasta original é movida intacta para `FEITOS/`. Se a tradução
+falhar ou o gate de completude reprovar, ela vai para `FALHAS/` (a saída parcial fica
+em `Output/` para inspeção) e a fila **segue** para o próximo livro.
+
 ## Desenvolvimento
 
 ```bash

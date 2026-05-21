@@ -51,6 +51,7 @@ dev = [
 [project.scripts]
 idml2md = "idml_to_md.cli:app"
 idml-translate = "idml_to_md.translation.cli:app"
+idml-queue = "idml_to_md.translation.queue_cli:app"
 
 [project.urls]
 Homepage = "https://github.com/asteraeditora/idml-to-md"
@@ -110,6 +111,7 @@ ignore = [
 # Typer idiomatic pattern requires factory calls in defaults
 "idml_to_md/cli.py" = ["B008"]
 "idml_to_md/translation/cli.py" = ["B008"]
+"idml_to_md/translation/queue_cli.py" = ["B008"]
 # Conversor MathML→LaTeX usa intencionalmente caracteres Unicode matemáticos
 # (×, −, ∨, ∪, ∩, etc.) que o lint marca como ambíguos.
 "idml_to_md/mathml_to_latex.py" = ["RUF001", "RUF002", "RUF003"]
