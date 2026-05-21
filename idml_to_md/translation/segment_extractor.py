@@ -63,6 +63,8 @@ def extract_segments(
     *,
     xml_dump_dir: Path | None = None,
     force_translate_styles: frozenset[str] = frozenset(),
+    include_master_spreads: bool = False,
+    master_cover_styles: frozenset[str] = frozenset(),
 ) -> list[Segment]:
     """Percorre todas as Stories e produz a lista global de ``Segment``.
 
@@ -77,6 +79,13 @@ def extract_segments(
             pipeline Markdown), DEVEM ser traduzidos aqui — ex.: título da capa
             e entradas do sumário manual. Para esses, o segmento não é pulado e
             o ``paragraph_kind`` vira ``paragraph``.
+        include_master_spreads: quando ``True``, também extrai Stories que só
+            existem em MasterSpreads (ex.: o título "UNIDADE" da capa da Unidade 1,
+            que nunca foi sobreposto numa página). Essas Stories são extraídas SÓ
+            quanto a ``master_cover_styles``.
+        master_cover_styles: nomes normalizados de ParagraphStyle (capa) que
+            podem ser extraídos de Stories de master. Sem isso, nenhum parágrafo
+            de master é emitido (evita traduzir cabeçalhos/rodapés/numeração).
 
     Returns:
         Lista plana de Segments em ordem global de leitura (Story por Story,
@@ -87,7 +96,7 @@ def extract_segments(
 
     segments: list[Segment] = []
     with IDMLDocument(idml_path) as doc:
-        order = resolve_reading_order(doc)
+        order = resolve_reading_order(doc, include_master_spreads=include_master_spreads)
         logger.info("Stories em ordem: {}", len(order))
 
         for entry in order:
@@ -100,7 +109,17 @@ def extract_segments(
             if xml_dump_dir is not None:
                 _dump_story_xml(idml_path, story_id, xml_dump_dir)
 
-            segments.extend(_walk_story(story_root, story_id, style_map, force_translate_styles))
+            # Stories só-de-master: extrair apenas os parágrafos de capa.
+            restrict_styles = master_cover_styles if entry.is_master else frozenset()
+            segments.extend(
+                _walk_story(
+                    story_root,
+                    story_id,
+                    style_map,
+                    force_translate_styles,
+                    restrict_styles=restrict_styles,
+                )
+            )
 
     logger.info("Segments extraídos: {}", len(segments))
     return segments
@@ -119,24 +138,35 @@ def _walk_story(
     story_id: str,
     style_map: StyleMap,
     force_translate_styles: frozenset[str] = frozenset(),
+    *,
+    restrict_styles: frozenset[str] = frozenset(),
 ) -> Iterator[Segment]:
     """Itera ``ParagraphStyleRange`` da Story emitindo Segments.
 
     Após cada PSR de topo, desce em qualquer ``<Table>`` ali dentro e emite
     também os parágrafos das células (recursivo p/ tabelas aninhadas).
+
+    Quando ``restrict_styles`` é não-vazio (Stories só-de-master), só os PSR cujo
+    ``paragraph_style`` normalizado está na allowlist são emitidos; tabelas são
+    ignoradas (capa de unidade não tem tabela).
     """
     story = root.find(".//Story")
     if story is None:
         return
 
     for paragraph_idx, psr in enumerate(story.findall("ParagraphStyleRange")):
-        yield _build_segment(
+        segment = _build_segment(
             psr,
             story_id,
             style_map,
             paragraph_idx=paragraph_idx,
             force_translate_styles=force_translate_styles,
         )
+        if restrict_styles:
+            if segment.paragraph_style in restrict_styles:
+                yield segment
+            continue
+        yield segment
         yield from _emit_table_segments(psr, story_id, style_map, force_translate_styles)
 
 

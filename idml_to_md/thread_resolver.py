@@ -31,16 +31,30 @@ class StoryOrderEntry:
     first_frame_id: str
     spread_index: int
     order_in_spread: int
+    is_master: bool = False  # True quando a Story só existe num MasterSpread
 
 
-def resolve_reading_order(doc: IDMLDocument) -> list[StoryOrderEntry]:
+def resolve_reading_order(
+    doc: IDMLDocument,
+    *,
+    include_master_spreads: bool = False,
+) -> list[StoryOrderEntry]:
     """Retorna a ordem global de leitura das Stories.
 
     A ordem usa a primeira raiz de cada thread como ponto de ancoragem.
     Stories já vistas em raízes anteriores não voltam (uma mesma Story
     pode aparecer em N TextFrames; só conta a primeira raiz).
+
+    Quando ``include_master_spreads`` é ``True``, Stories que só existem em
+    MasterSpreads (nunca sobrepostas numa página) são anexadas no FIM da ordem,
+    com ``is_master=True``. Como os Spreads normais são iterados primeiro, a
+    dedup por ``story_id`` garante que overrides de página tenham prioridade —
+    só o que é exclusivamente de master entra como master. Default ``False``
+    preserva o comportamento do pipeline Markdown.
     """
-    frames: list[TextFrameInfo] = list(doc.iter_text_frames())
+    frames: list[TextFrameInfo] = list(
+        doc.iter_text_frames(include_masters=include_master_spreads)
+    )
     by_id = {f.self_id: f for f in frames}
 
     # 1. Mapa story_id → primeiro frame que a contém (em ordem de página)
@@ -71,6 +85,9 @@ def resolve_reading_order(doc: IDMLDocument) -> list[StoryOrderEntry]:
                 first_frame_id=root_frame.self_id,
                 spread_index=root_frame.spread_index,
                 order_in_spread=root_frame.order_in_spread,
+                # A Story é "de master" só quando nenhum frame de página normal a
+                # referenciou (first_frame é o frame âncora pós-dedup).
+                is_master=first_frame.is_master,
             )
         )
         seen_stories.add(story_id)

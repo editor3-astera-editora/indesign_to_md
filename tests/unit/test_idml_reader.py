@@ -13,8 +13,17 @@ DESIGNMAP = """<?xml version="1.0"?>
 <Document xmlns:idPkg="http://ns.adobe.com/AdobeInDesign/idml/1.0/packaging">
   <idPkg:Spread src="Spreads/Spread_A.xml" />
   <idPkg:Spread src="Spreads/Spread_B.xml" />
+  <idPkg:MasterSpread src="MasterSpreads/MasterSpread_M.xml" />
   <idPkg:Styles src="Resources/Styles.xml" />
 </Document>
+"""
+
+MASTER_SPREAD_M = """<?xml version="1.0"?>
+<idPkg:MasterSpread xmlns:idPkg="http://ns.adobe.com/AdobeInDesign/idml/1.0/packaging">
+  <MasterSpread Self="M">
+    <TextFrame Self="fm1" ParentStory="sm1" PreviousTextFrame="n" NextTextFrame="n" />
+  </MasterSpread>
+</idPkg:MasterSpread>
 """
 
 SPREAD_A = """<?xml version="1.0"?>
@@ -66,6 +75,7 @@ def synthetic_idml(tmp_path: Path) -> Path:
         z.writestr("designmap.xml", DESIGNMAP)
         z.writestr("Spreads/Spread_A.xml", SPREAD_A)
         z.writestr("Spreads/Spread_B.xml", SPREAD_B)
+        z.writestr("MasterSpreads/MasterSpread_M.xml", MASTER_SPREAD_M)
         z.writestr("Stories/Story_s1.xml", STORY_S1)
         z.writestr("Resources/Styles.xml", STYLES_XML)
         z.writestr("mimetype", "application/vnd.adobe.indesign-idml-package")
@@ -80,6 +90,17 @@ class TestEnumeration:
     def test_story_paths_lists_all(self, synthetic_idml: Path) -> None:
         with IDMLDocument(synthetic_idml) as doc:
             assert doc.story_paths() == ["Stories/Story_s1.xml"]
+
+    def test_master_spread_paths(self, synthetic_idml: Path) -> None:
+        with IDMLDocument(synthetic_idml) as doc:
+            assert doc.master_spread_paths() == ["MasterSpreads/MasterSpread_M.xml"]
+
+    def test_iter_master_spreads_index_continues(self, synthetic_idml: Path) -> None:
+        with IDMLDocument(synthetic_idml) as doc:
+            items = list(doc.iter_master_spreads())
+        # 2 spreads normais (0,1) → master começa em 2
+        assert [i for i, _, _ in items] == [2]
+        assert [p for _, p, _ in items] == ["MasterSpreads/MasterSpread_M.xml"]
 
     def test_iter_spreads_returns_index_path_root(self, synthetic_idml: Path) -> None:
         with IDMLDocument(synthetic_idml) as doc:
@@ -135,6 +156,23 @@ class TestTextFrames:
             frames = list(doc.iter_text_frames())
         assert frames[0].spread_index == 0
         assert frames[2].spread_index == 1
+
+    def test_masters_excluded_by_default(self, synthetic_idml: Path) -> None:
+        with IDMLDocument(synthetic_idml) as doc:
+            frames = list(doc.iter_text_frames())
+        assert [f.self_id for f in frames] == ["f1", "f2", "f3"]
+        assert all(not f.is_master for f in frames)
+
+    def test_masters_included_when_requested(self, synthetic_idml: Path) -> None:
+        with IDMLDocument(synthetic_idml) as doc:
+            frames = list(doc.iter_text_frames(include_masters=True))
+        ids = [f.self_id for f in frames]
+        assert ids == ["f1", "f2", "f3", "fm1"]  # master vem por último
+        master = frames[-1]
+        assert master.self_id == "fm1"
+        assert master.is_master is True
+        assert master.parent_story == "sm1"
+        assert master.spread_index == 2  # após os 2 spreads normais
 
 
 class TestContextManager:

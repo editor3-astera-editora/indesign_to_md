@@ -175,3 +175,106 @@ TABLE_INNER = (
 def table_idml(tmp_path: Path) -> Path:
     """IDML com uma Story contendo uma tabela (célula de texto + célula numérica)."""
     return build_idml_single_story(tmp_path / "table.idml", TABLE_INNER)
+
+
+# --------------------------------------------------------------------------- #
+# IDML com capa de unidade vivendo SÓ num MasterSpread (cenário da Unidade 1). #
+# --------------------------------------------------------------------------- #
+
+MASTER_DESIGNMAP = """<?xml version="1.0" encoding="UTF-8" standalone="yes"?>
+<Document xmlns:idPkg="http://ns.adobe.com/AdobeInDesign/idml/1.0/packaging">
+  <idPkg:MasterSpread src="MasterSpreads/MasterSpread_um1.xml"/>
+  <idPkg:Spread src="Spreads/Spread_us1.xml"/>
+</Document>
+"""
+
+# Spread normal: só o corpo (ust1). NÃO sobrepõe o título da capa.
+MASTER_BODY_SPREAD = """<?xml version="1.0" encoding="UTF-8" standalone="yes"?>
+<idPkg:Spread xmlns:idPkg="http://ns.adobe.com/AdobeInDesign/idml/1.0/packaging" DOMVersion="18.0">
+  <Spread Self="us1" PageCount="1">
+    <Page Self="up1" Name="1" AppliedMaster="um1"/>
+    <TextFrame Self="utf1" ParentStory="ust1" PreviousTextFrame="n" NextTextFrame="n"/>
+  </Spread>
+</idPkg:Spread>
+"""
+
+# MasterSpread: título "UNIDADE" (umcover), número "1" (umnum) e um cabeçalho
+# corrido (umhdr) que NÃO é estilo de capa — deve ficar de fora da extração.
+MASTER_SPREAD_XML = """<?xml version="1.0" encoding="UTF-8" standalone="yes"?>
+<idPkg:MasterSpread xmlns:idPkg="http://ns.adobe.com/AdobeInDesign/idml/1.0/packaging" DOMVersion="18.0">
+  <MasterSpread Self="um1">
+    <TextFrame Self="umtf1" ParentStory="umcover" PreviousTextFrame="n" NextTextFrame="n"/>
+    <TextFrame Self="umtf2" ParentStory="umnum" PreviousTextFrame="n" NextTextFrame="n"/>
+    <TextFrame Self="umtf3" ParentStory="umhdr" PreviousTextFrame="n" NextTextFrame="n"/>
+  </MasterSpread>
+</idPkg:MasterSpread>
+"""
+
+_MASTER_BODY_STORY = (
+    '<Story Self="ust1">'
+    '<ParagraphStyleRange AppliedParagraphStyle="ParagraphStyle/Texto principal">'
+    '<CharacterStyleRange AppliedCharacterStyle="CharacterStyle/$ID/[No character style]">'
+    "<Content>Corpo do capítulo.</Content></CharacterStyleRange>"
+    "</ParagraphStyleRange></Story>"
+)
+
+
+def _master_story(story_id: str, applied_style: str, content: str) -> str:
+    return (
+        f'<Story Self="{story_id}">'
+        f'<ParagraphStyleRange AppliedParagraphStyle="{applied_style}">'
+        '<CharacterStyleRange AppliedCharacterStyle="CharacterStyle/$ID/[No character style]">'
+        f"<Content>{content}</Content></CharacterStyleRange>"
+        "</ParagraphStyleRange></Story>"
+    )
+
+
+def _wrap_story(inner: str) -> str:
+    return (
+        '<?xml version="1.0" encoding="UTF-8" standalone="yes"?>'
+        '<idPkg:Story xmlns:idPkg="http://ns.adobe.com/AdobeInDesign/idml/1.0/packaging"'
+        f' DOMVersion="18.0">{inner}</idPkg:Story>'
+    )
+
+
+def build_master_cover_idml(out_path: Path) -> Path:
+    """IDML onde a capa "UNIDADE"+"1" vive SÓ num MasterSpread (como a Unidade 1).
+
+    Stories:
+    - ``ust1``  — corpo, num Spread normal (sempre extraído).
+    - ``umcover`` — "UNIDADE" (``Título capa``), só no master.
+    - ``umnum``  — "1" (``Título capa``), só no master (número → skip).
+    - ``umhdr``  — cabeçalho corrido (``Texto principal``), só no master →
+      fora da allowlist de capa, NÃO deve ser extraído.
+    """
+    out_path.parent.mkdir(parents=True, exist_ok=True)
+    with zipfile.ZipFile(out_path, "w", compression=zipfile.ZIP_DEFLATED) as zf:
+        info = zipfile.ZipInfo("mimetype")
+        info.compress_type = zipfile.ZIP_STORED
+        zf.writestr(info, MIMETYPE)
+        zf.writestr("designmap.xml", MASTER_DESIGNMAP)
+        zf.writestr("Resources/Styles.xml", STYLES_XML)
+        zf.writestr("Spreads/Spread_us1.xml", MASTER_BODY_SPREAD)
+        zf.writestr("MasterSpreads/MasterSpread_um1.xml", MASTER_SPREAD_XML)
+        zf.writestr("Stories/Story_ust1.xml", _wrap_story(_MASTER_BODY_STORY))
+        zf.writestr(
+            "Stories/Story_umcover.xml",
+            _wrap_story(_master_story("umcover", "ParagraphStyle/Título capa", "UNIDADE")),
+        )
+        zf.writestr(
+            "Stories/Story_umnum.xml",
+            _wrap_story(_master_story("umnum", "ParagraphStyle/Título capa", "1")),
+        )
+        zf.writestr(
+            "Stories/Story_umhdr.xml",
+            _wrap_story(
+                _master_story("umhdr", "ParagraphStyle/Texto principal", "Gestão da Qualidade")
+            ),
+        )
+    return out_path
+
+
+@pytest.fixture
+def master_cover_idml(tmp_path: Path) -> Path:
+    """IDML com capa de unidade só no master (cenário da Unidade 1)."""
+    return build_master_cover_idml(tmp_path / "master_cover.idml")

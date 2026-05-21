@@ -42,3 +42,21 @@ translate_dropped_styles:
   - "Sumario:SUMARIO UNIDADE"
   - "Sumario:Item 1"
   - "Sumario:Item 1.1"
+
+# Capa de unidade ("UNIDADE" + número) que vive SÓ no MasterSpread quando o
+# designer não sobrepôs o frame na página (caso da Unidade 1). Ligado por padrão.
+# false desliga a leitura de masters (volta ao comportamento antigo).
+include_master_spreads: true
+
+# Estilos de parágrafo que PODEM ser extraídos de Stories que só existem em
+# masters. Restrito a capa para não traduzir cabeçalhos/rodapés/numeração.
+master_cover_styles:
+  - "Título capa"
+  - "ESTILOS PRINCIPAIS:Título capa"
+
+# Glossário determinístico da capa: plain_text exato → tradução fixa, aplicada
+# ANTES da LLM (custo zero, sempre "UNIDAD"). O número é preservado pelo
+# classifier. {} desliga o glossário.
+cover_glossary:
+  "UNIDADE": "UNIDAD"
+  "Unidade": "Unidad"

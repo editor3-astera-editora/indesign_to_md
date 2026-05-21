@@ -15,7 +15,7 @@ from __future__ import annotations
 
 import json
 import time
-from dataclasses import dataclass
+from dataclasses import dataclass, field
 from pathlib import Path
 
 import yaml
@@ -47,6 +47,22 @@ _DEFAULT_TRANSLATE_DROPPED_STYLES: tuple[str, ...] = (
     "Sumario:Item 1.1",
 )
 
+# Estilos de capa que PODEM ser extraídos de Stories que só existem em
+# MasterSpreads — caso do título "UNIDADE" da capa de unidade, que nas Unidades
+# 2/3/4 foi sobreposto na página mas na Unidade 1 ficou só no master.
+_DEFAULT_MASTER_COVER_STYLES: tuple[str, ...] = (
+    "Título capa",
+    "ESTILOS PRINCIPAIS:Título capa",
+)
+
+# Glossário determinístico da capa: ``plain_text`` exato → tradução fixa,
+# aplicado antes da LLM (custo zero, sempre consistente). O número da unidade é
+# preservado pelo classifier (NUMERIC_LITERAL).
+_DEFAULT_COVER_GLOSSARY: dict[str, str] = {
+    "UNIDADE": "UNIDAD",
+    "Unidade": "Unidad",
+}
+
 
 @dataclass(slots=True)
 class TranslationConfig:
@@ -65,6 +81,12 @@ class TranslationConfig:
     brand_names: tuple[str, ...] = ()
     non_translatable_styles: tuple[str, ...] = ()
     translate_dropped_styles: tuple[str, ...] = _DEFAULT_TRANSLATE_DROPPED_STYLES
+    # Capa de unidade que vive só no MasterSpread (ver módulo acima).
+    include_master_spreads: bool = True
+    master_cover_styles: tuple[str, ...] = _DEFAULT_MASTER_COVER_STYLES
+    cover_glossary: dict[str, str] = field(
+        default_factory=lambda: dict(_DEFAULT_COVER_GLOSSARY)
+    )
 
     @classmethod
     def from_yaml(cls, path: Path) -> TranslationConfig:
@@ -85,6 +107,17 @@ class TranslationConfig:
                 tuple(data["translate_dropped_styles"])
                 if "translate_dropped_styles" in data
                 else _DEFAULT_TRANSLATE_DROPPED_STYLES
+            ),
+            include_master_spreads=data.get("include_master_spreads", True),
+            master_cover_styles=(
+                tuple(data["master_cover_styles"])
+                if "master_cover_styles" in data
+                else _DEFAULT_MASTER_COVER_STYLES
+            ),
+            cover_glossary=(
+                dict(data["cover_glossary"])
+                if "cover_glossary" in data
+                else dict(_DEFAULT_COVER_GLOSSARY)
             ),
         )
 
@@ -152,6 +185,8 @@ def translate_idml(
         style_map,
         xml_dump_dir=xml_original_dir,
         force_translate_styles=frozenset(cfg.translate_dropped_styles),
+        include_master_spreads=cfg.include_master_spreads,
+        master_cover_styles=frozenset(cfg.master_cover_styles),
     )
 
     classify(
@@ -211,6 +246,7 @@ def translate_idml(
             batch_max_input_tokens=cfg.batch_max_input_tokens,
             temperature=cfg.temperature,
             max_completion_tokens=cfg.max_completion_tokens,
+            glossary=dict(cfg.cover_glossary),
         )
         translator_client = TranslatorClient(translator_config, api_key=api_key)
 

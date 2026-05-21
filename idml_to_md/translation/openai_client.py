@@ -102,6 +102,10 @@ class TranslatorConfig:
     batch_max_input_tokens: int = 3000
     temperature: float = 0.2
     max_completion_tokens: int = 4000
+    # Glossário determinístico: ``plain_text`` exato (sem espaços nas pontas) →
+    # tradução fixa. Aplicado ANTES da LLM (custo zero, resultado garantido).
+    # Ex.: título da capa "UNIDADE" → "UNIDAD" em todas as unidades.
+    glossary: dict[str, str] = field(default_factory=dict)
 
 
 class TranslatorClient:
@@ -152,13 +156,28 @@ class TranslatorClient:
         self.stats.total_segments = len(translatable)
         translations: list[Translation] = []
 
-        batches = self._chunk_batches(translatable)
+        # Glossário determinístico ANTES da LLM: segmentos cujo texto bate exato
+        # com uma chave saem traduzidos sem chamada à API (custo zero).
+        glossary = self.config.glossary
+        to_llm: list[Segment] = []
+        for seg in translatable:
+            target = glossary.get(seg.plain_text.strip()) if glossary else None
+            if target is not None:
+                translations.append(self._glossary_translation(seg, target))
+                self.stats.translated += 1
+            else:
+                to_llm.append(seg)
+
+        if translations:
+            logger.info("Glossário determinístico aplicado a {} segmento(s)", len(translations))
+
+        batches = self._chunk_batches(to_llm)
         total_batches = len(batches)
         logger.info(
             "Preparando {} lote(s) para {} segmentos traduzíveis "
             "(modelo={}, batch_max={} segs / {} tokens)",
             total_batches,
-            len(translatable),
+            len(to_llm),
             self.config.model,
             self.config.batch_max_segments,
             self.config.batch_max_input_tokens,
@@ -192,6 +211,26 @@ class TranslatorClient:
             )
 
         return translations
+
+    # ------------------------------------------------------------------ glossário
+
+    def _glossary_translation(self, seg: Segment, target: str) -> Translation:
+        """Monta uma ``Translation`` determinística a partir do glossário.
+
+        O texto-alvo vai para o primeiro run com conteúdo (demais esvaziados),
+        reaproveitando :func:`_flat_fallback` — exatamente o que se quer para o
+        título de capa, que é um único run.
+        """
+        nonempty_idx = [i for i, r in enumerate(seg.runs) if r.text.strip()]
+        target_runs, _ = _flat_fallback(seg, target, nonempty_idx, [])
+        return Translation(
+            segment_id=seg.segment_id,
+            source_text=seg.plain_text,
+            target_text=target,
+            target_runs=target_runs,
+            model="glossary",
+            warnings=["glossary"],
+        )
 
     # ------------------------------------------------------------------ batching
 

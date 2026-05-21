@@ -9,16 +9,33 @@ from idml_to_md.thread_resolver import _walk_to_root, resolve_reading_order
 
 
 class _FakeDoc:
-    """Doppelgänger de IDMLDocument só com ``iter_text_frames``."""
+    """Doppelgänger de IDMLDocument só com ``iter_text_frames``.
+
+    Espelha o contrato real: frames de master só aparecem quando
+    ``include_masters=True``, e sempre depois dos de página normal.
+    """
 
     def __init__(self, frames: list[TextFrameInfo]) -> None:
         self._frames = frames
 
-    def iter_text_frames(self):  # type: ignore[no-untyped-def]
-        return iter(self._frames)
+    def iter_text_frames(self, include_masters: bool = False):  # type: ignore[no-untyped-def]
+        normal = [f for f in self._frames if not f.is_master]
+        if not include_masters:
+            return iter(normal)
+        masters = [f for f in self._frames if f.is_master]
+        return iter(normal + masters)
 
 
-def tf(self_id: str, story: str, prev: str, nxt: str, spread: int, order: int) -> TextFrameInfo:
+def tf(
+    self_id: str,
+    story: str,
+    prev: str,
+    nxt: str,
+    spread: int,
+    order: int,
+    *,
+    is_master: bool = False,
+) -> TextFrameInfo:
     return TextFrameInfo(
         self_id=self_id,
         parent_story=story,
@@ -26,6 +43,7 @@ def tf(self_id: str, story: str, prev: str, nxt: str, spread: int, order: int) -
         next_text_frame=nxt,
         spread_index=spread,
         order_in_spread=order,
+        is_master=is_master,
     )
 
 
@@ -93,6 +111,36 @@ class TestResolveReadingOrder:
         order = resolve_reading_order(cast(IDMLDocument, fake))
         # story_z (página 1) antes de story_y (raiz na página 2)
         assert [e.story_id for e in order] == ["story_z", "story_y"]
+
+
+class TestMasterSpreads:
+    def test_masters_ignored_by_default(self) -> None:
+        body = tf("A", "story_body", "n", "n", 0, 0)
+        cover = tf("M", "story_cover", "n", "n", 5, 0, is_master=True)
+        fake = _FakeDoc([body, cover])
+        order = resolve_reading_order(cast(IDMLDocument, fake))
+        assert [e.story_id for e in order] == ["story_body"]
+
+    def test_master_only_story_appended_last(self) -> None:
+        body = tf("A", "story_body", "n", "n", 0, 0)
+        cover = tf("M", "story_cover", "n", "n", 5, 0, is_master=True)
+        fake = _FakeDoc([body, cover])
+        order = resolve_reading_order(cast(IDMLDocument, fake), include_master_spreads=True)
+        ids = [e.story_id for e in order]
+        assert ids == ["story_body", "story_cover"]  # master por último
+        by_id = {e.story_id: e for e in order}
+        assert by_id["story_cover"].is_master is True
+        assert by_id["story_body"].is_master is False
+
+    def test_story_on_page_and_master_is_deduped_as_page(self) -> None:
+        # Mesma story referenciada num Spread normal E num master (override de
+        # página) → conta como página (is_master=False), não duplica.
+        page = tf("A", "shared", "n", "n", 0, 0)
+        master = tf("M", "shared", "n", "n", 5, 0, is_master=True)
+        fake = _FakeDoc([page, master])
+        order = resolve_reading_order(cast(IDMLDocument, fake), include_master_spreads=True)
+        assert [e.story_id for e in order] == ["shared"]
+        assert order[0].is_master is False
 
 
 class TestCycleSafety:

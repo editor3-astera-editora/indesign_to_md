@@ -106,6 +106,96 @@ class TestExtract:
         assert all(s.skip_reason == SkipReason.EMPTY for s in segments)
 
 
+class TestMasterCoverExtraction:
+    """Capa de unidade ("UNIDADE") que vive só num MasterSpread (Unidade 1)."""
+
+    _COVER_STYLES = frozenset({"Título capa", "ESTILOS PRINCIPAIS:Título capa"})
+
+    def test_master_ignored_by_default(self, master_cover_idml: Path) -> None:
+        # Sem o flag, masters não são vistos → só o corpo do Spread normal.
+        segments = extract_segments(master_cover_idml, build_style_map())
+        story_ids = {s.story_id for s in segments}
+        assert story_ids == {"ust1"}
+        assert not any(s.story_id == "umcover" for s in segments)
+
+    def test_master_cover_extracted_when_enabled(self, master_cover_idml: Path) -> None:
+        segments = extract_segments(
+            master_cover_idml,
+            build_style_map(),
+            include_master_spreads=True,
+            master_cover_styles=self._COVER_STYLES,
+        )
+        classify(segments)
+        by_story = {s.story_id: s for s in segments}
+
+        # "UNIDADE" extraído e traduzível.
+        assert "umcover" in by_story
+        cover = by_story["umcover"]
+        assert cover.plain_text == "UNIDADE"
+        assert cover.paragraph_style == "Título capa"
+        assert cover.skip is False
+
+        # número "1" extraído (é capa) mas pulado pelo classifier (numérico).
+        assert "umnum" in by_story
+        assert by_story["umnum"].plain_text == "1"
+        assert by_story["umnum"].skip is True
+        assert by_story["umnum"].skip_reason == SkipReason.NUMERIC_LITERAL
+
+    def test_master_non_cover_style_excluded(self, master_cover_idml: Path) -> None:
+        # Cabeçalho corrido (Texto principal) no master NÃO entra na allowlist.
+        segments = extract_segments(
+            master_cover_idml,
+            build_style_map(),
+            include_master_spreads=True,
+            master_cover_styles=self._COVER_STYLES,
+        )
+        assert not any(s.story_id == "umhdr" for s in segments)
+
+    def test_master_cover_appended_after_body(self, master_cover_idml: Path) -> None:
+        # Stories de master entram DEPOIS das de página normal.
+        segments = extract_segments(
+            master_cover_idml,
+            build_style_map(),
+            include_master_spreads=True,
+            master_cover_styles=self._COVER_STYLES,
+        )
+        order = [s.story_id for s in segments]
+        assert order.index("ust1") < order.index("umcover")
+
+    def test_end_to_end_writes_unidad(self, master_cover_idml: Path, tmp_path: Path) -> None:
+        # extract (master) → glossário determinístico → writer → "UNIDAD" no XML.
+        import zipfile
+
+        from idml_to_md.translation.idml_writer import write_translated_idml
+        from idml_to_md.translation.openai_client import TranslatorClient, TranslatorConfig
+
+        segments = extract_segments(
+            master_cover_idml,
+            build_style_map(),
+            include_master_spreads=True,
+            master_cover_styles=self._COVER_STYLES,
+        )
+        classify(segments)
+        cover = [s for s in segments if not s.skip and s.plain_text.strip() == "UNIDADE"]
+        # client=object(): o glossário não chama API, então não é tocado.
+        client = TranslatorClient(
+            TranslatorConfig(glossary={"UNIDADE": "UNIDAD"}), client=object()
+        )
+        translations = client.translate_segments(cover)
+
+        out = tmp_path / "out.idml"
+        stats = write_translated_idml(
+            source_idml=master_cover_idml,
+            target_idml=out,
+            segments=cover,
+            translations=translations,
+        )
+        assert stats["contents_replaced"] == 1
+        with zipfile.ZipFile(out) as zf:
+            xml = zf.read("Stories/Story_umcover.xml").decode("utf-8")
+        assert "<Content>UNIDAD</Content>" in xml
+
+
 class TestExtractInline:
     """Runs em ordem de documento + fronteiras (Br/âncora)."""
 

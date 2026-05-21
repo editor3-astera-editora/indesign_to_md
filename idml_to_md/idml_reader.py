@@ -23,6 +23,7 @@ from urllib.parse import unquote
 from lxml import etree
 
 _SPREAD_SRC_RE = re.compile(r'src="(Spreads/Spread_[^"]+\.xml)"')
+_MASTER_SPREAD_SRC_RE = re.compile(r'src="(MasterSpreads/MasterSpread_[^"]+\.xml)"')
 
 
 @dataclass(slots=True)
@@ -35,6 +36,7 @@ class TextFrameInfo:
     next_text_frame: str
     spread_index: int
     order_in_spread: int
+    is_master: bool = False  # True quando o frame vive num MasterSpread
 
 
 class IDMLDocument:
@@ -85,6 +87,18 @@ class IDMLDocument:
             text = fh.read().decode("utf-8")
         return _SPREAD_SRC_RE.findall(text)
 
+    def master_spread_paths(self) -> list[str]:
+        """Caminhos internos das MasterSpreads na ordem do designmap.
+
+        Páginas-mestre (capa de unidade, cabeçalhos/rodapés). NÃO entram na
+        ordem de leitura normal — só são consultadas pelo pipeline de tradução
+        para alcançar texto que vive SÓ no master e nunca foi sobreposto numa
+        página (ex.: o título "UNIDADE" da capa da Unidade 1).
+        """
+        with self._zip.open("designmap.xml") as fh:
+            text = fh.read().decode("utf-8")
+        return _MASTER_SPREAD_SRC_RE.findall(text)
+
     def story_paths(self) -> list[str]:
         """Caminhos internos das Stories, na ordem em que aparecem no designmap.
 
@@ -101,6 +115,16 @@ class IDMLDocument:
         """Itera (index, path, root) das Spreads na ordem do designmap."""
         for idx, path in enumerate(self.spread_paths()):
             yield idx, path, self._parse(path)
+
+    def iter_master_spreads(self) -> Iterator[tuple[int, str, etree._Element]]:
+        """Itera (index, path, root) das MasterSpreads na ordem do designmap.
+
+        Os índices CONTINUAM a numeração dos Spreads normais, para que frames de
+        master ordenem DEPOIS dos de página em ``thread_resolver``.
+        """
+        offset = len(self.spread_paths())
+        for idx, path in enumerate(self.master_spread_paths()):
+            yield offset + idx, path, self._parse(path)
 
     def get_story_root(self, story_id: str) -> etree._Element | None:
         """Obtém o root XML de uma Story pelo id (``u1f81d``).
@@ -133,11 +157,16 @@ class IDMLDocument:
         return names
 
     # ------------------------------------------------------------- text frames
-    def iter_text_frames(self) -> Iterator[TextFrameInfo]:
-        """Itera TODOS os TextFrames de TODAS as Spreads, em ordem de página.
+    def iter_text_frames(self, include_masters: bool = False) -> Iterator[TextFrameInfo]:
+        """Itera TextFrames das Spreads, em ordem de página.
 
         Inclui ``spread_index`` (página) e ``order_in_spread`` para uso em
         heurísticas geométricas de fallback no ``thread_resolver``.
+
+        Quando ``include_masters`` é ``True``, após os Spreads normais também
+        itera os MasterSpreads (``is_master=True``, ``spread_index`` continuando
+        a numeração). Default ``False`` mantém o comportamento histórico — o
+        pipeline Markdown não vê masters.
         """
         for idx, _path, root in self.iter_spreads():
             for order, tf in enumerate(root.iter("TextFrame")):
@@ -148,4 +177,19 @@ class IDMLDocument:
                     next_text_frame=tf.get("NextTextFrame") or "n",
                     spread_index=idx,
                     order_in_spread=order,
+                )
+
+        if not include_masters:
+            return
+
+        for idx, _path, root in self.iter_master_spreads():
+            for order, tf in enumerate(root.iter("TextFrame")):
+                yield TextFrameInfo(
+                    self_id=tf.get("Self") or "",
+                    parent_story=tf.get("ParentStory") or "",
+                    previous_text_frame=tf.get("PreviousTextFrame") or "n",
+                    next_text_frame=tf.get("NextTextFrame") or "n",
+                    spread_index=idx,
+                    order_in_spread=order,
+                    is_master=True,
                 )

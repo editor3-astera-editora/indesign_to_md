@@ -270,6 +270,58 @@ class TestTranslatorClient:
         # Com batch_max=2 e 5 segments, devem virar 3 lotes (2,2,1)
         assert [len(b) for b in batches] == [2, 2, 1]
 
+    def test_glossary_hit_is_deterministic_no_api_call(self) -> None:
+        fake = _FakeOpenAI("SHOULD NOT BE USED")
+        client = TranslatorClient(
+            config=TranslatorConfig(model="gpt-4o-mini", glossary={"UNIDADE": "UNIDAD"}),
+            client=fake,
+        )
+        translations = client.translate_segments([_seg("UNIDADE", sid="u:0")])
+        assert len(translations) == 1
+        t = translations[0]
+        assert t.target_text == "UNIDAD"
+        assert t.target_runs[0].text == "UNIDAD"
+        assert t.model == "glossary"
+        # Nenhuma chamada à API foi feita.
+        assert fake.chat.completions.calls == []
+        assert client.stats.translated == 1
+        assert client.stats.estimated_cost_usd == 0.0
+
+    def test_glossary_matches_stripped_text(self) -> None:
+        fake = _FakeOpenAI("x")
+        client = TranslatorClient(
+            config=TranslatorConfig(model="gpt-4o-mini", glossary={"UNIDADE": "UNIDAD"}),
+            client=fake,
+        )
+        seg = _seg("  UNIDADE  ", sid="u:0")
+        translations = client.translate_segments([seg])
+        assert translations[0].target_text == "UNIDAD"
+        assert fake.chat.completions.calls == []
+
+    def test_glossary_mixed_with_llm(self) -> None:
+        fake = _FakeOpenAI("[[1]] Hola")
+        client = TranslatorClient(
+            config=TranslatorConfig(model="gpt-4o-mini", glossary={"UNIDADE": "UNIDAD"}),
+            client=fake,
+        )
+        segs = [_seg("UNIDADE", sid="u:0"), _seg("Olá", sid="u:1")]
+        translations = client.translate_segments(segs)
+        by_id = {t.segment_id: t for t in translations}
+        assert by_id["u:0"].target_text == "UNIDAD"
+        assert by_id["u:0"].model == "glossary"
+        assert by_id["u:1"].target_text == "Hola"
+        # Só o segmento não-glossário foi à API.
+        assert len(fake.chat.completions.calls) == 1
+
+    def test_no_glossary_all_go_to_llm(self) -> None:
+        fake = _FakeOpenAI("[[1]] Hola")
+        client = TranslatorClient(
+            config=TranslatorConfig(model="gpt-4o-mini"),
+            client=fake,
+        )
+        client.translate_segments([_seg("Olá", sid="u:0")])
+        assert len(fake.chat.completions.calls) == 1
+
     def test_api_failure_keeps_originals(self) -> None:
         class _BrokenChat:
             class completions:
