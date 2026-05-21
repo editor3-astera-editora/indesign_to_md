@@ -1,0 +1,139 @@
+[build-system]
+requires = ["hatchling>=1.21"]
+build-backend = "hatchling.build"
+
+[project]
+name = "idml-to-md"
+version = "0.1.0"
+description = "Pipeline IDML-first para converter livros didáticos do Adobe InDesign em Markdown estruturado."
+readme = "README.md"
+requires-python = ">=3.11"
+license = { text = "MIT" }
+authors = [{ name = "Astera Editora" }]
+keywords = ["indesign", "idml", "markdown", "mathtype", "pipeline", "publishing"]
+classifiers = [
+    "Development Status :: 3 - Alpha",
+    "Intended Audience :: Developers",
+    "License :: OSI Approved :: MIT License",
+    "Programming Language :: Python :: 3.11",
+    "Programming Language :: Python :: 3.12",
+    "Topic :: Text Processing :: Markup :: Markdown",
+    "Topic :: Text Processing :: Markup :: XML",
+]
+dependencies = [
+    "simpleidml>=1.0",
+    "lxml>=5.2",
+    "typer>=0.12",
+    "pydantic>=2.7",
+    "pyyaml>=6.0",
+    "loguru>=0.7",
+    "rich>=13",
+    "pillow>=10.3",
+    "tenacity>=8.2",
+    "openai>=1.30",
+    "tiktoken>=0.7",
+    "python-dotenv>=1.0",
+]
+
+[project.optional-dependencies]
+dev = [
+    "pytest>=8.2",
+    "pytest-cov>=5.0",
+    "pytest-xdist>=3.6",
+    "pytest-mock>=3.14",
+    "pytest-snapshot>=0.9",
+    "ruff>=0.5",
+    "mypy>=1.10",
+    "types-PyYAML",
+    "lxml-stubs",
+]
+
+[project.scripts]
+idml2md = "idml_to_md.cli:app"
+idml-translate = "idml_to_md.translation.cli:app"
+
+[project.urls]
+Homepage = "https://github.com/asteraeditora/idml-to-md"
+Repository = "https://github.com/asteraeditora/idml-to-md"
+
+[tool.hatch.build.targets.wheel]
+packages = ["idml_to_md"]
+
+# ---------------------------------------------------------------------------
+# pytest
+# ---------------------------------------------------------------------------
+[tool.pytest.ini_options]
+minversion = "8.0"
+addopts = [
+    "-ra",
+    "--strict-markers",
+    "--strict-config",
+]
+testpaths = ["tests"]
+markers = [
+    "integration: testes lentos que executam binários externos reais (Saxon, Inkscape, etc.) — pulados por default no loop local",
+    "slow: testes que tomam mais de 5 segundos",
+]
+filterwarnings = [
+    "error",
+    "ignore::DeprecationWarning:simple_idml.*",
+]
+
+# ---------------------------------------------------------------------------
+# ruff
+# ---------------------------------------------------------------------------
+[tool.ruff]
+target-version = "py311"
+line-length = 100
+extend-exclude = ["vendor", "_tmp_idml", "out", "Indesign_exemplos"]
+
+[tool.ruff.lint]
+select = [
+    "E", "F", "W",   # pycodestyle + pyflakes
+    "I",             # isort
+    "B",             # bugbear
+    "UP",            # pyupgrade
+    "SIM",           # simplify
+    "RUF",           # ruff-specific
+    "PL",            # pylint
+    "PT",            # pytest-style
+]
+ignore = [
+    "PLR0913",  # too many arguments
+    "PLR2004",  # magic numbers (comum em parsers XML)
+    "E501",     # line-too-long (deixado para o formatter resolver)
+]
+
+[tool.ruff.lint.per-file-ignores]
+"tests/**/*.py" = ["PLR2004", "S101", "PLC0415", "PT018", "RUF001", "RUF002", "RUF003"]
+"scripts/**/*.py" = ["T201"]
+# Typer idiomatic pattern requires factory calls in defaults
+"idml_to_md/cli.py" = ["B008"]
+"idml_to_md/translation/cli.py" = ["B008"]
+# Conversor MathML→LaTeX usa intencionalmente caracteres Unicode matemáticos
+# (×, −, ∨, ∪, ∩, etc.) que o lint marca como ambíguos.
+"idml_to_md/mathml_to_latex.py" = ["RUF001", "RUF002", "RUF003"]
+# Classifier usa símbolos matemáticos Unicode (×, ÷) em regex.
+"idml_to_md/translation/classifier.py" = ["RUF001"]
+
+# ---------------------------------------------------------------------------
+# mypy
+# ---------------------------------------------------------------------------
+[tool.mypy]
+python_version = "3.11"
+strict = true
+warn_return_any = true
+disallow_untyped_defs = true
+disallow_incomplete_defs = true
+check_untyped_defs = true
+no_implicit_optional = true
+show_error_codes = true
+exclude = ["vendor", "_tmp_idml", "out", "Indesign_exemplos", "build", "dist"]
+
+[[tool.mypy.overrides]]
+module = ["simple_idml.*", "simpleidml.*"]
+ignore_missing_imports = true
+
+[[tool.mypy.overrides]]
+module = "tests.*"
+disallow_untyped_defs = false

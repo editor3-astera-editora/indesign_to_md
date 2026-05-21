@@ -1,0 +1,132 @@
+# Mapeamento default de estilos InDesign → semântica Markdown.
+# Coleções específicas devem providenciar um overlay (deep-merge sobre este arquivo)
+# em ``config/styles.<colecao>.yaml``.
+#
+# kinds suportados (sincronizar com idml_to_md/models.py::BlockKind):
+#   heading | paragraph | list | admonition | blockquote | code_block |
+#   table | image | equation_display | caption | front_matter |
+#   reference_entry | drop | passthrough
+
+version: 1
+
+defaults:
+  unknown_paragraph_style: passthrough   # passthrough | warn | drop
+  unknown_character_style: passthrough
+
+paragraph_styles:
+  # --- Hierarquia de títulos ---
+  "Títulos:T1":                  { kind: heading, level: 1, starts_chapter: true }
+  "Títulos:Titulo capítulos":    { kind: heading, level: 1, starts_chapter: true }
+  "Títulos:Seção Titulo":        { kind: heading, level: 1, starts_chapter: true }
+  "Títulos:T2":                  { kind: heading, level: 2 }
+  "Títulos:T3":                  { kind: heading, level: 3 }
+  "Títulos:T3_RECUO MENOR":      { kind: heading, level: 3 }
+  "Títulos:T4":                  { kind: heading, level: 4 }
+  "TÍTULO UNIDADE":              { kind: heading, level: 1, role: unit_title, starts_chapter: true }
+  "INTRODUÇÃO/OBJETIVOS/REFERÊNCIAS": { kind: heading, level: 1, starts_chapter: true }
+
+  # --- Texto corrente ---
+  "Texto principal":             { kind: paragraph }
+  "$ID/NormalParagraphStyle":    { kind: paragraph }
+  "iniciais:Texto das fichas":   { kind: paragraph }
+  "texto_infográficos":          { kind: paragraph }
+
+  # --- Boxes / Admonitions ---
+  "Texto BOX":                   { kind: admonition, variant: note }
+  "Título texto BOX":            { kind: admonition_title, variant: note }
+  "Texto BOX SEÇÃO COLOR":       { kind: admonition, variant: tip }
+  "Título BOX SEÇÃO COLOR":      { kind: admonition_title, variant: tip }
+  "Texto BOX - Bullet":          { kind: list, ordered: false, inside: admonition }
+  "TEXTO OBJETIVO":              { kind: admonition, variant: tip, title: "Objetivos" }
+  "TEXTO OBJETIVO_TITULO":       { kind: admonition_title, variant: tip }
+  "ESTILOS PRINCIPAIS:TEXTO OBJETIVO": { kind: admonition, variant: tip, title: "Objetivos" }
+
+  # --- Citação e código ---
+  "Citação":                     { kind: blockquote }
+  "Programação Box":             { kind: code_block, language: python }
+  "COMENTS":                     { kind: code_block, language: text }
+
+  # --- Listas ---
+  # ``nested: true`` indica que esta lista aninha no último item da lista
+  # IMEDIATAMENTE anterior (ex.: alternativas A/B/C/D sob cada pergunta).
+  "Bullet":                              { kind: list, ordered: false }
+  "Bullet Números":                      { kind: list, ordered: true, marker: decimal }
+  "Bullet Números - I II III":           { kind: list, ordered: true, marker: upper-roman }
+  "Bullet Números I, II, III":           { kind: list, ordered: true, marker: upper-roman }
+  "Bullet Números - Nível II":           { kind: list, ordered: true, marker: decimal, level: 2, nested: true }
+  "Bullet ABC":                          { kind: list, ordered: true, marker: upper-alpha, nested: true }
+  "Bullet - Box Vazado Dir":             { kind: list, ordered: false, inside: admonition }
+  "Bullet - Box Vazado Esq":             { kind: list, ordered: false, inside: admonition }
+
+  # --- Legendas, fontes e créditos ---
+  "Legenda":                     { kind: caption, style: italic }
+  "Fonte":                       { kind: caption, style: italic_small, role: source_line }
+  "Credito imagem":              { kind: caption, style: italic_small, role: image_credit }
+  "CREDITO_FOTOS":               { kind: caption, style: italic_small, role: image_credit }
+  "ANCORAGEM IMAGEM":            { kind: caption, role: image_anchor }
+  "ANCORAGEM IMAGENS":           { kind: caption, role: image_anchor }
+
+  # --- Referências ---
+  "Referências":                 { kind: reference_entry, section: "Referências" }
+
+  # --- Front matter ---
+  "Título capa":                 { kind: front_matter, role: title }
+  "ESTILOS PRINCIPAIS:Título capa": { kind: front_matter, role: title }
+  "Folha de rosto":              { kind: front_matter, role: cover_page }
+  "AUTORIA":                     { kind: front_matter, role: authors }
+  "Ficha_tecnica":               { kind: front_matter, role: imprint }
+  "FICHA_TECNICA":               { kind: front_matter, role: imprint }
+
+  # --- Infográficos ---
+  "tITULO_INFOGRAFICOS":         { kind: heading, level: 3, role: infographic }
+  "Cotas_Infograficos":          { kind: caption, role: infographic_label }
+  "Cotas-Infográficos":          { kind: caption, role: infographic_label }
+  "Cotas_MAIORES":               { kind: caption, role: infographic_label }
+
+  # --- Tabelas ---
+  "Texto de tabela":             { kind: paragraph, context: table }
+  "Titulo - tabela":             { kind: caption, context: table, style: bold }
+
+  # --- Drops (não devem aparecer no Markdown) ---
+  "Rodapé":                      { kind: drop, reason: "running header/footer" }
+  "$ID/[No paragraph style]":    { kind: drop, reason: "no style" }
+  "Sumario:SUMARIO":             { kind: drop, reason: "TOC regenerado" }
+  "Sumario:SUMARIO UNIDADE":     { kind: drop, reason: "TOC regenerado" }
+  "Sumario:Item 1.1":            { kind: drop, reason: "TOC regenerado" }
+  "Sumario:Item 1":              { kind: drop, reason: "TOC regenerado" }
+  "Sumario:Folha de rosto":      { kind: drop, reason: "TOC regenerado" }
+
+character_styles:
+  "Bold":                { wrap: "**" }
+  "Italic":              { wrap: "*" }
+  "BoldItalic":          { wrap: "***" }
+  "Sobrescrito":         { html: sup }
+  "Subscrito":           { html: sub }
+
+admonitions:
+  # github | obsidian | mkdocs
+  format: github
+  variants:
+    note:    { gh_tag: NOTE,    emoji: "" }
+    tip:     { gh_tag: TIP,     emoji: "" }
+    warning: { gh_tag: WARNING, emoji: "" }
+
+tables:
+  prefer: gfm
+  fallback_html_on_merged_cells: true
+  fallback_html_on_nested_table: true
+  fallback_html_on_block_content_in_cell: true
+
+equations:
+  inline_delim: ["$", "$"]
+  display_delim: ["$$", "$$"]
+  save_eps_fallback: true     # se MathML falhar, gerar PNG e referenciar como imagem
+  cache_dir: ".idml2md_cache/equations"
+
+images:
+  ai_to: svg                  # svg | png
+  eps_nonmath_to: svg
+  copy_dir: assets/img
+  vector_dir: assets/vector
+  equations_dir: assets/eqs
+  dedup_by_hash: true

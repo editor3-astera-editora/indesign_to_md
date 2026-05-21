@@ -1,0 +1,44 @@
+# Configuração padrão do pipeline de tradução IDML PT→ES.
+# Sobrescrita por overlays via --config no CLI idml-translate.
+
+target_lang: es              # es | en | fr | it | de
+model: gpt-4o-mini           # gpt-4o | gpt-4o-mini | gpt-4-turbo | gpt-3.5-turbo
+
+# Batching: limites para cada chamada à API.
+batch_max_segments: 30
+batch_max_input_tokens: 3000
+temperature: 0.2
+max_completion_tokens: 4000
+
+# Marcas/nomes próprios que NUNCA devem ser traduzidos.
+# Match exato (case-sensitive) com o plain_text do segmento.
+brand_names:
+  - Astera
+  - Astera Editora
+  - InDesign
+  - MathType
+  - LaTeX
+  - Microsoft
+  - Google
+  - IBGE
+  - ABNT
+  - ISO
+
+# Estilos de parágrafo (do styles.default.yaml) cujo conteúdo NUNCA traduz.
+# Útil para anchorings, créditos de imagem, rodapés, etc.
+non_translatable_styles:
+  - "Credito imagem"
+  - "CREDITO_FOTOS"
+  - "ANCORAGEM IMAGEM"
+  - "ANCORAGEM IMAGENS"
+
+# Estilos com kind:drop no styles.default.yaml (corretos para o Markdown, que
+# regenera o TOC e descarta a capa) mas que DEVEM ser traduzidos na saída IDML —
+# título da capa e entradas do sumário manual. Edite para ajustar à coleção;
+# deixe como lista vazia ([]) para desligar o override.
+translate_dropped_styles:
+  - "Sumario:Folha de rosto"   # título da capa (pág. 1)
+  - "Sumario:SUMARIO"
+  - "Sumario:SUMARIO UNIDADE"
+  - "Sumario:Item 1"
+  - "Sumario:Item 1.1"

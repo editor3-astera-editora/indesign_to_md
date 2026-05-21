@@ -1,0 +1,77 @@
+# Python
+__pycache__/
+*.py[cod]
+*$py.class
+*.so
+.Python
+build/
+dist/
+*.egg-info/
+*.egg
+.eggs/
+
+# Virtual environments
+.venv/
+venv/
+env/
+ENV/
+
+# Secrets / API keys
+.env
+.env.local
+.env.*.local
+
+# Test / coverage
+.pytest_cache/
+.coverage
+.coverage.*
+htmlcov/
+coverage.xml
+.tox/
+.cache/
+
+# Lint / type cache
+.ruff_cache/
+.mypy_cache/
+
+# Testes
+*.coverage 
+*.coveragerc
+/GESTAO DA QUALIDADE
+/MATEMATICA FINANCEIRA 
+/Indesign_exemplos
+
+# IDE
+.idea/
+.vscode/
+*.swp
+
+# Pipeline runtime
+out/
+.idml2md_cache/
+_tmp_idml/
+_tmp_*/
+*=0.7
+*1.30
+*.github
+
+# Vendored binários externos
+vendor/
+
+# Fixtures pesadas / livros reais não versionados
+tests/fixtures/idml/real/
+tests/fixtures/eps/real/
+
+# OS
+.DS_Store
+Thumbs.db
+desktop.ini
+
+# Pasta de exemplos (artefatos editoriais grandes)
+Indesign_exemplos/Document fonts/
+Indesign_exemplos/Links/Thumbs.db
+
+# Arquivos de input e output 
+*.idml 
+*.xml
+*.json
