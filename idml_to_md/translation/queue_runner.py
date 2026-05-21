@@ -22,7 +22,7 @@ from __future__ import annotations
 
 import shutil
 import time
-from collections.abc import Callable
+from collections.abc import Callable, Sequence
 from dataclasses import dataclass, field
 from enum import StrEnum
 from pathlib import Path
@@ -96,11 +96,15 @@ class QueueResult:
         return [o for o in self.outcomes if o.status is BookStatus.SKIPPED]
 
 
-def discover_books(input_dir: Path) -> list[BookJob]:
+def discover_books(input_dir: Path, only: Sequence[str] | None = None) -> list[BookJob]:
     """Lista os livros pendentes em ``input_dir`` (uma subpasta por livro).
 
     Cada subpasta imediata deve conter exatamente um ``.idml``. Subpastas sem
     ``.idml`` são puladas (com aviso); com mais de um, usa o primeiro em ordem.
+
+    Se ``only`` for informado, mantém apenas os livros cujo nome de subpasta
+    esteja na lista (comparação sem diferenciar maiúsculas/minúsculas); nomes
+    pedidos que não casarem com nenhum livro geram aviso.
     """
     input_dir = Path(input_dir)
     jobs: list[BookJob] = []
@@ -117,7 +121,21 @@ def discover_books(input_dir: Path) -> list[BookJob]:
                 idmls[0].name,
             )
         jobs.append(BookJob(name=sub.name, folder=sub, idml_path=idmls[0]))
+
+    if only:
+        jobs = _filter_only(jobs, only)
     return jobs
+
+
+def _filter_only(jobs: list[BookJob], only: Sequence[str]) -> list[BookJob]:
+    """Mantém só os ``jobs`` nomeados em ``only`` (case-insensitive); avisa faltantes."""
+    wanted = {name.casefold() for name in only}
+    selected = [job for job in jobs if job.name.casefold() in wanted]
+    found = {job.name.casefold() for job in selected}
+    for name in only:
+        if name.casefold() not in found:
+            logger.warning("--only '{}': nenhum livro com esse nome em Input", name)
+    return selected
 
 
 def process_book(
@@ -217,10 +235,11 @@ def run_queue(
     config: TranslationConfig,
     styles_overlay: Path | None = None,
     dry_run: bool = False,
+    only: Sequence[str] | None = None,
     translate_fn: TranslateFn = translate_idml,
     verify_fn: VerifyFn = check_completeness,
 ) -> QueueResult:
-    """Processa todos os livros de ``input_dir`` sequencialmente."""
+    """Processa os livros de ``input_dir`` sequencialmente (todos, ou só ``only``)."""
     input_dir = Path(input_dir).resolve()
     output_root = Path(output_root).resolve()
     done_root = Path(done_root).resolve()
@@ -228,7 +247,7 @@ def run_queue(
     for root in (output_root, done_root, failed_root):
         root.mkdir(parents=True, exist_ok=True)
 
-    jobs = discover_books(input_dir)
+    jobs = discover_books(input_dir, only=only)
     result = QueueResult()
     logger.info("Fila: {} livro(s) em {}", len(jobs), input_dir)
 

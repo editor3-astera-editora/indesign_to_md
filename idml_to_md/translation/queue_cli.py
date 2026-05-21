@@ -97,6 +97,14 @@ def queue(
     model: str | None = typer.Option(
         None, "--model", "-m", help="Override do modelo OpenAI (default: do config)."
     ),
+    only: list[str] | None = typer.Option(
+        None,
+        "--only",
+        help=(
+            "Processa só o(s) livro(s) com esse nome de subpasta em --input "
+            "(repetível). Sem --only, processa todos."
+        ),
+    ),
     dry_run: bool = typer.Option(
         False,
         "--dry-run",
@@ -125,6 +133,7 @@ def queue(
         failed_root=failed_dir,
         config=cfg,
         styles_overlay=styles_overlay,
+        only=only,
         dry_run=dry_run,
     )
 

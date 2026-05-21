@@ -53,3 +53,36 @@ def test_queue_dry_run_end_to_end(minimal_idml: Path, tmp_path: Path) -> None:
     assert book.exists()
     assert not (tmp_path / "FEITOS" / "livro").exists()
     assert not (tmp_path / "Output" / "livro" / "livro_es.idml").exists()
+
+
+def test_queue_only_processes_single_book(minimal_idml: Path, tmp_path: Path) -> None:
+    """``--only`` processa só o livro escolhido; os demais de Input/ ficam intactos."""
+    inp = tmp_path / "Input"
+    for name in ("livro", "outro"):
+        book = inp / name
+        (book / "Links").mkdir(parents=True)
+        (book / "Document fonts").mkdir(parents=True)
+        shutil.copy(minimal_idml, book / f"{name}.idml")
+
+    runner = CliRunner()
+    result = runner.invoke(
+        app,
+        [
+            "--input",
+            str(inp),
+            "--output",
+            str(tmp_path / "Output"),
+            "--done",
+            str(tmp_path / "FEITOS"),
+            "--failed",
+            str(tmp_path / "FALHAS"),
+            "--only",
+            "livro",
+            "--dry-run",
+        ],
+    )
+
+    assert result.exit_code == 0, result.output
+    assert (tmp_path / "Output" / "livro" / "out" / "segments.json").is_file()
+    # O livro fora do --only não é tocado.
+    assert not (tmp_path / "Output" / "outro").exists()

@@ -76,13 +76,30 @@ Só as subpastas **imediatas** de `Input/` são consideradas. Uma subpasta **sem
 `.idml`** é pulada (com aviso); com **mais de um `.idml`**, usa o primeiro em
 ordem alfabética.
 
-Rode a fila (requer `OPENAI_API_KEY` no `.env`):
+### Rodar a fila inteira (tudo que está em `Input/`)
+
+Processa **todas** as subpastas de `Input/`, uma a uma (requer `OPENAI_API_KEY` no `.env`):
 
 ```bash
 idml-queue                 # usa Input/, Output/, FEITOS/, FALHAS/ (defaults)
 idml-queue --dry-run       # só extrai segmentos por livro (sem OpenAI, sem arquivar)
 idml-queue -i Input -o Output --done FEITOS --failed FALHAS -c config/translation.yaml
 ```
+
+### Rodar só um (ou alguns) livro(s) de `Input/`
+
+Use `--only "<nome da subpasta>"` para processar **apenas** o(s) livro(s)
+escolhido(s), com a **mesma** entrega e arquivamento da fila completa. Os demais
+livros em `Input/` ficam intactos. A opção é **repetível** e o nome casa com o da
+subpasta em `Input/` (sem diferenciar maiúsculas/minúsculas):
+
+```bash
+idml-queue --only "Anatomia humana"                               # um livro
+idml-queue --only "Anatomia humana" --only "Sistemas digitais"    # vários
+idml-queue --only "Anatomia humana" --dry-run                     # combina com as demais flags
+```
+
+> Um nome em `--only` que não corresponda a nenhuma subpasta de `Input/` é avisado e ignorado.
 
 Para cada livro, a saída de entrega (pronta para o InDesign) fica em:
 

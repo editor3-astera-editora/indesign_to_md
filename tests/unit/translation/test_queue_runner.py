@@ -148,6 +148,30 @@ def test_discover_books_multiple_idml_uses_first(tmp_path: Path) -> None:
     assert jobs[0].idml_path.name == "a1.idml"
 
 
+def test_discover_books_only_filters_and_warns_unknown(tmp_path: Path) -> None:
+    inp = tmp_path / "Input"
+    inp.mkdir()
+    _make_book(inp, "a")
+    _make_book(inp, "b")
+    _make_book(inp, "c")
+
+    # "nope" não existe → avisado e ignorado; mantém só os que casam.
+    jobs = discover_books(inp, only=["a", "c", "nope"])
+
+    assert [j.name for j in jobs] == ["a", "c"]
+
+
+def test_discover_books_only_is_case_insensitive(tmp_path: Path) -> None:
+    inp = tmp_path / "Input"
+    inp.mkdir()
+    _make_book(inp, "Anatomia humana")
+    _make_book(inp, "Sistemas digitais")
+
+    jobs = discover_books(inp, only=["anatomia HUMANA"])
+
+    assert [j.name for j in jobs] == ["Anatomia humana"]
+
+
 # --------------------------------------------------------------------------- #
 # process_book
 # --------------------------------------------------------------------------- #
@@ -328,6 +352,34 @@ def test_run_queue_mixed_continues_on_failure(tmp_path: Path) -> None:
     assert (done / "ok1").is_dir()
     assert (done / "ok2").is_dir()
     assert (failed / "bad").is_dir()
+
+
+def test_run_queue_only_processes_subset(tmp_path: Path) -> None:
+    inp = tmp_path / "Input"
+    inp.mkdir()
+    _make_book(inp, "ok1")
+    skipped = _make_book(inp, "ok2")
+    _make_book(inp, "ok3")
+    output, done, failed = _roots(tmp_path)
+
+    result = run_queue(
+        inp,
+        output,
+        done,
+        failed,
+        config=CONFIG,
+        only=["ok1", "ok3"],
+        translate_fn=_fake_translate,
+        verify_fn=_verify(True),
+    )
+
+    assert {o.name for o in result.done} == {"ok1", "ok3"}
+    assert (done / "ok1").is_dir()
+    assert (done / "ok3").is_dir()
+    # Livro fora do --only fica intacto em Input e não é entregue.
+    assert skipped.exists()
+    assert not (output / "ok2").exists()
+    assert not (done / "ok2").exists()
 
 
 def test_run_queue_empty_input(tmp_path: Path) -> None:
