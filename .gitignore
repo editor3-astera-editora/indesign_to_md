@@ -71,7 +71,11 @@ desktop.ini
 Indesign_exemplos/Document fonts/
 Indesign_exemplos/Links/Thumbs.db
 
-# Arquivos de input e output 
-*.idml 
+# Arquivos de input e output
+*.idml
 *.xml
 *.json
+
+# Pastas de livros (assets editoriais grandes: .eps, .jpg, .pdf, .indd, .psd, fontes...)
+Input/
+Output/

@@ -66,11 +66,15 @@ Organize os livros pendentes em `Input/`, uma subpasta por livro:
 
 ```
 Input/<Livro>/
-  <Livro>.idml
-  <Livro>.indd
+  <Livro>.idml          ← obrigatório (exatamente 1 por subpasta)
+  <Livro>.indd          ← opcional (não copiado para Output; fica só no arquivo de FEITOS)
   Links/
   Document fonts/
 ```
+
+Só as subpastas **imediatas** de `Input/` são consideradas. Uma subpasta **sem
+`.idml`** é pulada (com aviso); com **mais de um `.idml`**, usa o primeiro em
+ordem alfabética.
 
 Rode a fila (requer `OPENAI_API_KEY` no `.env`):
 
@@ -86,13 +90,18 @@ Para cada livro, a saída de entrega (pronta para o InDesign) fica em:
 Output/<Livro>/
   Document fonts/        ← cópia
   Links/                 ← cópia
-  <Livro>_es.idml        ← IDML traduzido
+  <Livro>_es.idml        ← IDML traduzido (sufixo = idioma destino, ex.: _es)
   out/                   ← segments/translations/_translation_report/_completeness + XMLs
 ```
 
+> ⚠️ `Output/<Livro>/` é **regenerável**: se já existir, é apagada e recriada a
+> cada execução. Não guarde nada manualmente nessa pasta.
+
 Ao **concluir**, a subpasta original é movida intacta para `FEITOS/`. Se a tradução
 falhar ou o gate de completude reprovar, ela vai para `FALHAS/` (a saída parcial fica
-em `Output/` para inspeção) e a fila **segue** para o próximo livro.
+em `Output/` para inspeção) e a fila **segue** para o próximo livro. Se já houver uma
+pasta de mesmo nome em `FEITOS/`/`FALHAS/`, é anexado um sufixo de timestamp
+(`<Livro>__1716300000`) para não sobrescrever arquivamentos anteriores.
 
 ## Desenvolvimento
 

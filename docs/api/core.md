@@ -70,7 +70,7 @@ def convert_idml(
 def inspect_styles(idml_path: Path) -> Counter[str]: ...
 ```
 
-**`convert_idml`** executa: abrir IDML → ordem de leitura → mapa de estilos → walker por Story → assets raster → assets vetoriais → reescrita de paths em `ImageBlock` → TOC + render → relatório. Grava `out/<slug>/<slug>.md` e `_report.json`. Cache de equações em `<output_dir>/../.idml2md_cache/equations/`.
+**`convert_idml`** executa: abrir IDML → ordem de leitura → mapa de estilos → walker por Story → assets raster → assets vetoriais → reescrita de paths em `ImageBlock` → TOC + render → relatório. Grava `out/<slug>/<slug>.md` e `_report.json`. Cache de equações em `.cache/idml2md/equations/` (configurável via `equations.cache_dir` no YAML de estilos).
 
 **`inspect_styles`** retorna um `Counter[nome_normalizado] → uso` percorrendo todas as Stories sem renderizar nada.
 

@@ -121,7 +121,7 @@ equations:
   inline_delim: ["$", "$"]
   display_delim: ["$$", "$$"]
   save_eps_fallback: true     # se MathML falhar, gerar PNG e referenciar como imagem
-  cache_dir: ".idml2md_cache/equations"
+  cache_dir: ".cache/idml2md/equations"
 
 images:
   ai_to: svg                  # svg | png

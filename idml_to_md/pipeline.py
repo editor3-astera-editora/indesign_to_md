@@ -81,7 +81,8 @@ def convert_idml(
     vector_dir = book_out / "assets" / "vector"
 
     style_map = build_style_map(overlay_path=overlay_path)
-    cache_dir = output_dir.parent / ".idml2md_cache" / "equations"
+    cache_rel = style_map.equations_config.get("cache_dir") or ".cache/idml2md/equations"
+    cache_dir = Path(cache_rel)
     converter = EquationConverter(cache_dir=cache_dir)
 
     logger.info("Abrindo IDML: {}", idml_path.name)
