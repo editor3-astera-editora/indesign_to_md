@@ -298,3 +298,182 @@ def test_pipeline_skips_cover_title_when_disabled(tmp_path: Path) -> None:
         story = zf.read("Stories/Story_ust1.xml").decode("utf-8")
     # original preservado (drop pulado, não traduzido)
     assert "<Content>Matemática Financeira</Content>" in story
+
+
+# ---------------------------------------------------------------------------
+# Sincronização sumário ↔ títulos de capítulo (sync_toc_titles)
+# ---------------------------------------------------------------------------
+
+
+class _DivergentCompletions:
+    """Mock que traduz o MESMO título de formas diferentes no corpo e no sumário.
+
+    Corpo (sem marcadores §tN§) → sufixo ``-COR``. Sumário (multi-run, com
+    marcadores) → cada título recebe ``-SUM``, preservando ``\\t<página>``.
+    Simula a não-determinismo da LLM que motiva a sincronização.
+    """
+
+    def create(self, **kwargs: Any) -> _Completion:
+        import re
+
+        user = next(m["content"] for m in kwargs["messages"] if m["role"] == "user")
+        out_lines: list[str] = []
+        for match in re.finditer(
+            r"\[\[(\d+)\]\]\s*(.*?)(?=\n\[\[\d+\]\]|\Z)", user, re.DOTALL
+        ):
+            idx, content = match.group(1), match.group(2).strip()
+            if "§t" in content:
+
+                def _repl(m: re.Match[str]) -> str:
+                    n, inner = m.group(1), m.group(2)
+                    title, sep, page = inner.partition("\t")
+                    return f"§t{n}§{title}-SUM{sep}{page}§/t{n}§"
+
+                content = re.sub(r"§t(\d+)§(.*?)§/t\1§", _repl, content, flags=re.DOTALL)
+            else:
+                content = f"{content}-COR"
+            out_lines.append(f"[[{idx}]] {content}")
+        return _Completion(
+            choices=[_Choice(message=_Message(content="\n".join(out_lines)))],
+            usage=_Usage(),
+        )
+
+
+class _DivergentChat:
+    completions = _DivergentCompletions()
+
+
+class _DivergentMock:
+    chat = _DivergentChat()
+
+
+_SYNC_INNER = (
+    '<ParagraphStyleRange AppliedParagraphStyle="ParagraphStyle/T%c3%adtulos%3aT1">'
+    '<CharacterStyleRange AppliedCharacterStyle="CharacterStyle/$ID/[No character style]">'
+    "<Content>Conjuntos</Content></CharacterStyleRange></ParagraphStyleRange>"
+    '<ParagraphStyleRange AppliedParagraphStyle="ParagraphStyle/Sumario%3aItem 1">'
+    '<CharacterStyleRange AppliedCharacterStyle="CharacterStyle/$ID/[No character style]">'
+    '<HyperlinkTextSource Self="h1"><Properties/>'
+    "<Content>Conjuntos\t16</Content></HyperlinkTextSource><Br/>"
+    '<HyperlinkTextSource Self="h2">'
+    "<Content>Estatística e Pesquisa\t33</Content></HyperlinkTextSource>"
+    "</CharacterStyleRange></ParagraphStyleRange>"
+)
+
+
+def _run_sync_pipeline(tmp_path: Path, *, sync: bool) -> str:
+    idml = build_idml_single_story(tmp_path / "sync.idml", _SYNC_INNER)
+    client = TranslatorClient(
+        config=TranslatorConfig(model="gpt-4o-mini", batch_max_segments=10),
+        client=_DivergentMock(),
+    )
+    result = translate_idml(
+        idml_path=idml,
+        output_dir=tmp_path / "out",
+        config=TranslationConfig(
+            model="gpt-4o-mini", target_lang="es", sync_toc_titles=sync
+        ),
+        translator_client=client,
+    )
+    with zipfile.ZipFile(result.target_idml, "r") as zf:
+        return zf.read("Stories/Story_ust1.xml").decode("utf-8")
+
+
+def test_pipeline_syncs_toc_entry_to_chapter_title(tmp_path: Path) -> None:
+    """Sumário é reescrito para o título traduzido do corpo (sufixo de página intacto)."""
+    story = _run_sync_pipeline(tmp_path, sync=True)
+    # Corpo (heading) + entrada do sumário usam a MESMA tradução "-COR".
+    assert story.count("Conjuntos-COR") == 2
+    assert "Conjuntos-COR\t16" in story
+    # A versão divergente do sumário foi descartada.
+    assert "Conjuntos-SUM" not in story
+    # Sem heading correspondente → mantém a tradução da LLM.
+    assert "Estatística e Pesquisa-SUM\t33" in story
+
+
+def test_pipeline_no_sync_leaves_divergent_toc(tmp_path: Path) -> None:
+    """Com sync_toc_titles=False a entrada do sumário fica divergente do corpo."""
+    story = _run_sync_pipeline(tmp_path, sync=False)
+    assert story.count("Conjuntos-COR") == 1  # só o heading do corpo
+    assert "Conjuntos-SUM\t16" in story
+
+
+# Estrutura INVERTIDA: HyperlinkTextSource é filho DIRETO do PSR e envolve os
+# CSRs, com o título partido em 2 runs ("Mundo do " + "trabalho \t59").
+# Reproduz o caso real do livro 81 (Story_u1cf09 / "Mundo do trabalho").
+_INVERTED_TOC_INNER = (
+    '<ParagraphStyleRange AppliedParagraphStyle="ParagraphStyle/T%c3%adtulos%3aT1">'
+    '<CharacterStyleRange AppliedCharacterStyle="CharacterStyle/$ID/[No character style]">'
+    "<Content>Mundo do trabalho</Content></CharacterStyleRange></ParagraphStyleRange>"
+    '<ParagraphStyleRange AppliedParagraphStyle="ParagraphStyle/Sumario%3aItem 1">'
+    '<HyperlinkTextSource Self="h3"><Properties/>'
+    '<CharacterStyleRange AppliedCharacterStyle="CharacterStyle/$ID/[No character style]">'
+    "<Content>Mundo do </Content></CharacterStyleRange>"
+    '<CharacterStyleRange AppliedCharacterStyle="CharacterStyle/$ID/[No character style]">'
+    "<Content>trabalho \t59</Content></CharacterStyleRange>"
+    "</HyperlinkTextSource>"
+    '<CharacterStyleRange AppliedCharacterStyle="CharacterStyle/$ID/[No character style]">'
+    "<Br/></CharacterStyleRange></ParagraphStyleRange>"
+)
+
+
+def _run_inverted_pipeline(tmp_path: Path, *, sync: bool) -> str:
+    idml = build_idml_single_story(tmp_path / "inv.idml", _INVERTED_TOC_INNER)
+    client = TranslatorClient(
+        config=TranslatorConfig(model="gpt-4o-mini", batch_max_segments=10),
+        client=_DivergentMock(),
+    )
+    result = translate_idml(
+        idml_path=idml,
+        output_dir=tmp_path / "out",
+        config=TranslationConfig(
+            model="gpt-4o-mini", target_lang="es", sync_toc_titles=sync
+        ),
+        translator_client=client,
+    )
+    with zipfile.ZipFile(result.target_idml, "r") as zf:
+        return zf.read("Stories/Story_ust1.xml").decode("utf-8")
+
+
+def test_inverted_toc_entry_is_translated(tmp_path: Path) -> None:
+    """Sem o fix, a entrada invertida ficaria em PT; agora ela é traduzida."""
+    story = _run_inverted_pipeline(tmp_path, sync=False)
+    # A entrada do sumário NÃO ficou no original PT.
+    assert "<Content>trabalho \t59</Content>" not in story
+    assert "-SUM" in story  # foi traduzida (mock divergente)
+
+
+def test_inverted_toc_entry_synced_to_chapter_title(tmp_path: Path) -> None:
+    """Com sync, o título partido em 2 runs casa o corpo e fica idêntico."""
+    story = _run_inverted_pipeline(tmp_path, sync=True)
+    # Corpo (heading) + sumário usam a MESMA tradução, com a página preservada.
+    assert story.count("Mundo do trabalho-COR") == 2
+    assert "Mundo do trabalho-COR\t59" in story
+    # A versão divergente do sumário foi descartada.
+    assert "-SUM" not in story
+
+
+def test_config_default_sync_toc_titles() -> None:
+    cfg = TranslationConfig()
+    assert cfg.sync_toc_titles is True
+    assert "Títulos:T1" in cfg.chapter_title_styles
+    assert "Sumario:Item 1" in cfg.toc_entry_styles
+
+
+def test_config_from_yaml_sync_defaults_when_absent(tmp_path: Path) -> None:
+    yaml_path = tmp_path / "t.yaml"
+    yaml_path.write_text("target_lang: es\n", encoding="utf-8")
+    cfg = TranslationConfig.from_yaml(yaml_path)
+    assert cfg.sync_toc_titles is True
+    assert "Títulos:T1" in cfg.chapter_title_styles
+    assert "Sumario:Item 1" in cfg.toc_entry_styles
+
+
+def test_config_from_yaml_can_disable_sync(tmp_path: Path) -> None:
+    yaml_path = tmp_path / "t.yaml"
+    yaml_path.write_text(
+        "sync_toc_titles: false\nchapter_title_styles: []\n", encoding="utf-8"
+    )
+    cfg = TranslationConfig.from_yaml(yaml_path)
+    assert cfg.sync_toc_titles is False
+    assert cfg.chapter_title_styles == ()

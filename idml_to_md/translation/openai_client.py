@@ -37,6 +37,7 @@ from idml_to_md.translation.prompt_builder import (
     PH_OPEN,
     PH_TEXT_PREFIX,
     build_batch_prompt,
+    group_logical_runs,
     parse_batch_response,
 )
 
@@ -402,31 +403,59 @@ _MARKER_CLEAN_RE = re.compile(
 )
 
 
+def _parse_marker_response(target_text: str) -> tuple[dict[int, str], list[str]]:
+    """Separa a resposta da LLM em marcadores ``§tN§`` e texto solto (sem marcador).
+
+    Retorna ``(found, bare_chunks)``: ``found`` mapeia índice do grupo → texto do
+    par ``§tN§…§/tN§``; ``bare_chunks`` é o texto traduzido FORA de qualquer
+    marcador, em ordem de documento (``§br§``/``§aN§`` são tratados como
+    marcadores e não entram no texto solto).
+    """
+    found: dict[int, str] = {}
+    bare_chunks: list[str] = []
+    cursor = 0
+    for match in _TOKEN_RE.finditer(target_text):
+        between = target_text[cursor : match.start()]
+        if between.strip():
+            bare_chunks.append(between)
+        txt = match.group("txt")
+        if txt is not None:  # é um par §tN§…§/tN§ (não §br§/§aN§)
+            found[int(match.group("tk"))] = txt
+        cursor = match.end()
+    tail = target_text[cursor:]
+    if tail.strip():
+        bare_chunks.append(tail)
+    return found, bare_chunks
+
+
 def _distribute_runs(
     seg: Segment,
     target_text: str,
 ) -> tuple[list[SegmentRun], list[str]]:
     """Reconstrói a lista de runs traduzidos a partir da resposta com marcadores.
 
-    Mapeamento POSICIONAL: cada par ``§tN§…§/tN§`` (N = índice do run em
-    ``seg.runs``) reidrata o texto do run N — independente da ordem em que a LLM
-    emitiu os tokens. Runs sem marcador correspondente mantêm o texto original
-    (com aviso, se eram traduzíveis). Marcadores ``§br§``/``§aN§`` são ignorados
-    aqui (a estrutura física já está preservada no XML).
+    Mapeamento POSICIONAL por run LÓGICO (ver
+    :func:`prompt_builder.group_logical_runs`): cada par ``§tN§…§/tN§`` (N =
+    índice do grupo lógico) reidrata o grupo N — a tradução vai no PRIMEIRO run
+    físico do grupo e os demais runs do grupo são esvaziados (uma palavra partida
+    em vários ``<Content>`` é traduzida como uma só). Grupos sem marcador
+    correspondente mantêm o texto original consolidado no 1º run (com aviso, se
+    eram traduzíveis), nunca deixando fragmentos PT soltos. Marcadores
+    ``§br§``/``§aN§`` são ignorados aqui (a estrutura física já está no XML).
 
-    Fallback (nenhum par ``§tN§`` reconhecido): joga o texto limpo no primeiro
-    run com conteúdo e esvazia os demais. Sem aviso quando havia ≤1 run
-    traduzível (caso comum do caminho cru); com aviso quando havia 2+.
+    Marcador ausente mas com tradução solta: se a LLM traduziu o trecho mas
+    "esqueceu" o ``§tN§`` à volta, o texto solto (não marcado) é recuperado por
+    ORDEM e usado — preserva a tradução em vez de cair para o PT.
+
+    Fallback final (grupo sem marcador E sem texto solto): consolida o ORIGINAL
+    (PT) no 1º run e esvazia os demais — nunca deixa fragmentos PT soltos (ex.:
+    ``"circulatorioório"``). Sem nenhum marcador reconhecido: ``_flat_fallback``.
 
     Retorna ``(runs_traduzidos, warnings)``.
     """
     warnings: list[str] = []
 
-    found: dict[int, str] = {}
-    for match in _TOKEN_RE.finditer(target_text):
-        txt = match.group("txt")
-        if txt is not None:  # é um par §tN§…§/tN§ (não §br§/§aN§)
-            found[int(match.group("tk"))] = txt
+    found, bare_chunks = _parse_marker_response(target_text)
 
     if not seg.runs:
         return [], warnings
@@ -436,16 +465,38 @@ def _distribute_runs(
     if not found:
         return _flat_fallback(seg, target_text, nonempty_idx, warnings)
 
-    new_runs: list[SegmentRun] = []
-    for i, run in enumerate(seg.runs):
-        if i in found:
-            new_runs.append(run.model_copy(update={"text": found[i]}))
+    groups = group_logical_runs(seg.runs, seg.boundaries)
+
+    # Recupera grupos sem marcador a partir do texto solto (LLM traduziu mas
+    # perdeu o §tN§): casa os grupos faltantes com os trechos soltos POR ORDEM.
+    missing = [gi for gi in range(len(groups)) if gi not in found]
+    recovered = [gi for gi, _ in zip(missing, bare_chunks, strict=False)]
+    for gi, bare in zip(missing, bare_chunks, strict=False):
+        found[gi] = bare.strip()
+    if recovered:
+        warnings.append(
+            "marcador(es) ausente(s) recuperado(s) de texto traduzido solto: "
+            + ", ".join(f"§t{gi}§" for gi in recovered)
+        )
+
+    new_runs: list[SegmentRun] = [r.model_copy() for r in seg.runs]
+    for gi, group in enumerate(groups):
+        first = group[0]
+        if gi in found:
+            new_runs[first] = new_runs[first].model_copy(update={"text": found[gi]})
+            for k in group[1:]:
+                new_runs[k] = new_runs[k].model_copy(update={"text": ""})
         else:
-            if run.text.strip():
+            # Grupo sem marcador E sem tradução solta: consolida o ORIGINAL no 1º
+            # run e esvazia os demais — evita fragmentos PT soltos.
+            if any(seg.runs[k].text.strip() for k in group):
                 warnings.append(
-                    f"marcador §t{i}§ ausente na tradução — mantido original"
+                    f"marcador §t{gi}§ ausente na tradução — mantido original"
                 )
-            new_runs.append(run.model_copy(update={"text": run.text}))
+            consolidated = "".join(seg.runs[k].text for k in group)
+            new_runs[first] = new_runs[first].model_copy(update={"text": consolidated})
+            for k in group[1:]:
+                new_runs[k] = new_runs[k].model_copy(update={"text": ""})
     return new_runs, warnings
 
 

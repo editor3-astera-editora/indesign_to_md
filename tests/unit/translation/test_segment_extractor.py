@@ -274,6 +274,31 @@ class TestExtractInline:
         brs = [b for b in boundaries if b.kind == "br"]
         assert [b.after_text_ord for b in brs] == [0, 1]
 
+    def test_inverted_hyperlink_nesting_extracted(self) -> None:
+        # Estrutura INVERTIDA: HyperlinkTextSource é filho DIRETO do PSR e
+        # envolve os CSRs (caso "Mundo do trabalho" do livro 81). Antes do fix
+        # esse texto era invisível para a extração.
+        psr = _psr(
+            "<CharacterStyleRange>"
+            '<HyperlinkTextSource Self="h1"><Content>Eu consumidor\t55</Content>'
+            "</HyperlinkTextSource><Br/></CharacterStyleRange>"
+            '<HyperlinkTextSource Self="h2"><Properties/>'
+            "<CharacterStyleRange><Content>Mundo do </Content></CharacterStyleRange>"
+            "<CharacterStyleRange><Content>trabalho \t59</Content></CharacterStyleRange>"
+            "</HyperlinkTextSource>"
+            "<CharacterStyleRange><Br/></CharacterStyleRange>"
+        )
+        runs, boundaries = _extract_inline(psr)
+        assert [r.text for r in runs] == [
+            "Eu consumidor\t55",
+            "Mundo do ",
+            "trabalho \t59",
+        ]
+        # Os CSRs internos do wrapper viram unidades distintas (run_idx 1 e 2).
+        assert [(r.run_idx, r.content_idx) for r in runs] == [(0, 0), (1, 0), (2, 0)]
+        brs = [b for b in boundaries if b.kind == "br"]
+        assert [b.after_text_ord for b in brs] == [0, 2]
+
 
 class TestExtractTables:
     """Fase 2: parágrafos de células de tabela viram Segments (bugs #4/#5)."""

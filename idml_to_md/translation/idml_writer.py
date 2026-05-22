@@ -32,7 +32,7 @@ from loguru import logger
 from lxml import etree
 
 from idml_to_md.translation.models import Segment, Translation
-from idml_to_md.utils.xml import iter_csr_text_nodes
+from idml_to_md.utils.xml import iter_csr_text_nodes, iter_psr_csr_units
 
 # Regex para normalizar serialização do lxml ao formato que o InDesign aceita:
 #   <Tag attr=".."/>  →  <Tag attr=".." />   (espaço antes de />)
@@ -216,9 +216,11 @@ def _replace_runs_in_psr(
 ) -> int:
     """Substitui o texto de cada ``<Content>`` pelo run correspondente.
 
-    Endereçamento POSICIONAL por ``(run_idx=índice do CSR, content_idx=índice do
-    Content)``. Usa :func:`iter_csr_text_nodes` (mesma travessia do extractor) —
-    inclusive descendo em ``HyperlinkTextSource`` (texto de sumário/hyperlinks).
+    Endereçamento POSICIONAL por ``(run_idx=índice da unidade CSR, content_idx=
+    índice do Content)``. Usa :func:`iter_psr_csr_units` + :func:`iter_csr_text_nodes`
+    (mesma travessia do extractor) — inclusive ``HyperlinkTextSource`` dentro do
+    CSR E como filho direto do PSR (estrutura invertida de algumas entradas de
+    sumário).
     Cada ``<Content>`` é escrito individualmente; ``<Br/>`` e objetos ancorados
     ficam intactos, preservando quebras, listas e fórmulas inline.
     """
@@ -230,7 +232,7 @@ def _replace_runs_in_psr(
     }
 
     replaced = 0
-    for csr_idx, csr in enumerate(psr.findall("CharacterStyleRange")):
+    for csr_idx, csr in enumerate(iter_psr_csr_units(psr)):
         content_idx = 0
         for kind, el in iter_csr_text_nodes(csr):
             if kind != "content":

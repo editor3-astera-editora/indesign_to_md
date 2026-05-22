@@ -30,7 +30,7 @@ from idml_to_md.translation.models import (
     SegmentRun,
     SkipReason,
 )
-from idml_to_md.utils.xml import iter_csr_text_nodes
+from idml_to_md.utils.xml import iter_csr_text_nodes, iter_psr_csr_units
 
 # Caracteres de controle do InDesign descartáveis ao montar plain_text.
 _INVISIBLE_CHARS = {chr(0x00AD), chr(0xFEFF)}
@@ -288,7 +288,7 @@ def _extract_inline(
     boundaries: list[SegmentBoundary] = []
     anchor_ord = 0
 
-    for csr_idx, csr in enumerate(psr.findall("CharacterStyleRange")):
+    for csr_idx, csr in enumerate(iter_psr_csr_units(psr)):
         text_nodes = list(iter_csr_text_nodes(csr))
         has_content = any(kind == "content" for kind, _ in text_nodes)
         if not has_content and _is_anchor_csr(csr):

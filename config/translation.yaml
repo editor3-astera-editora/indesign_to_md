@@ -60,3 +60,26 @@ master_cover_styles:
 cover_glossary:
   "UNIDADE": "UNIDAD"
   "Unidade": "Unidad"
+
+# Sincronização sumário↔títulos de capítulo: passo determinístico DEPOIS da LLM
+# que reescreve cada entrada do sumário para ficar idêntica ao título do capítulo
+# traduzido (o corpo é a fonte da verdade). O sufixo de página (\t<página>) é
+# preservado. false desliga o passo.
+sync_toc_titles: true
+
+# Estilos de parágrafo que são título de capítulo (fonte canônica). Restrito aos
+# títulos de capítulo (nível 1); NÃO inclua T2/T3 a menos que o sumário liste
+# seções. Para sincronizar seções, adicione "Títulos:T2"/"Títulos:T3" aqui e
+# "Sumario:Item 1.1" em toc_entry_styles.
+chapter_title_styles:
+  - "Títulos:T1"
+  - "Títulos:Titulo capítulos"
+  - "Títulos:Seção Titulo"
+
+# Estilos de parágrafo das entradas do sumário a sincronizar. Varia por coleção:
+# Item 1 (ex.: Mat. Financeira) e/ou SUMARIO (ex.: Anatomia Humana). Entradas
+# sem título de capítulo correspondente (cabeçalho "SUMÁRIO", "REFERÊNCIAS") são
+# apenas ignoradas, sem efeito.
+toc_entry_styles:
+  - "Sumario:Item 1"
+  - "Sumario:SUMARIO"

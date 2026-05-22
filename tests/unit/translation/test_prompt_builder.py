@@ -9,6 +9,7 @@ from idml_to_md.translation.prompt_builder import (
     PH_OPEN,
     build_batch_prompt,
     build_segment_text_with_placeholders,
+    group_logical_runs,
     parse_batch_response,
 )
 
@@ -61,6 +62,30 @@ class TestPlaceholders:
             f"{PH_OPEN}t1{PH_OPEN}Dois.{PH_CLOSE}/t1{PH_CLOSE}"
         )
 
+    def test_midword_glued_same_format_runs_merged(self) -> None:
+        # "Sistema " + "circulat"(bold) + "ório"(bold): os 2 últimos colados e
+        # com a mesma formatação viram UM marcador (palavra partida pela InDesign).
+        seg = _seg_with_runs([
+            SegmentRun(run_idx=0, content_idx=0, text="Sistema "),
+            SegmentRun(run_idx=1, content_idx=0, text="circulat", bold=True),
+            SegmentRun(run_idx=2, content_idx=0, text="ório", bold=True),
+        ])
+        out = build_segment_text_with_placeholders(seg)
+        assert out == (
+            f"{PH_OPEN}t0{PH_OPEN}Sistema {PH_CLOSE}/t0{PH_CLOSE}"
+            f"{PH_OPEN}t1{PH_OPEN}circulatório{PH_CLOSE}/t1{PH_CLOSE}"
+        )
+
+    def test_superscript_not_merged(self) -> None:
+        # "m" + "2"(sobrescrito) colados mas formatação distinta → NÃO junta.
+        seg = _seg_with_runs([
+            SegmentRun(run_idx=0, content_idx=0, text="m"),
+            SegmentRun(run_idx=1, content_idx=0, text="2", superscript=True),
+        ])
+        out = build_segment_text_with_placeholders(seg)
+        assert f"{PH_OPEN}t0{PH_OPEN}m{PH_CLOSE}/t0{PH_CLOSE}" in out
+        assert f"{PH_OPEN}t1{PH_OPEN}2{PH_CLOSE}/t1{PH_CLOSE}" in out
+
     def test_anchor_between_runs_is_marked(self) -> None:  # bug #8/#9
         seg = _seg_with_runs(
             [
@@ -92,6 +117,40 @@ class TestPlaceholders:
         assert PH_BR in prompt.system
         assert f"{PH_OPEN}t" in prompt.system
         assert f"{PH_OPEN}a" in prompt.system
+
+
+class TestGroupLogicalRuns:
+    def _runs(self, *specs: tuple) -> list[SegmentRun]:
+        out = []
+        for i, spec in enumerate(specs):
+            text, bold = (spec if isinstance(spec, tuple) else (spec, False))
+            out.append(SegmentRun(run_idx=i, content_idx=0, text=text, bold=bold))
+        return out
+
+    def test_no_merge_when_space_separated(self) -> None:
+        runs = self._runs("Sistema ", ("circulatório", True))
+        assert group_logical_runs(runs, []) == [[0], [1]]
+
+    def test_merge_glued_same_format(self) -> None:
+        runs = self._runs("Sistema ", ("circulat", True), ("ório", True))
+        assert group_logical_runs(runs, []) == [[0], [1, 2]]
+
+    def test_no_merge_different_format(self) -> None:
+        # "Mus" normal + "cular" bold colados → formatação difere → não junta.
+        runs = self._runs("Mus", ("cular", True))
+        assert group_logical_runs(runs, []) == [[0], [1]]
+
+    def test_no_merge_across_boundary(self) -> None:
+        runs = self._runs("Um.", "Dois.")
+        bnds = [SegmentBoundary(kind="br", after_text_ord=0)]
+        assert group_logical_runs(runs, bnds) == [[0], [1]]
+
+    def test_three_glued_merge_into_one(self) -> None:
+        runs = self._runs("Articul", "ações do ")  # colados, mesmo formato
+        assert group_logical_runs(runs, []) == [[0, 1]]
+
+    def test_empty_runs(self) -> None:
+        assert group_logical_runs([], []) == []
 
 
 class TestBuildBatchPrompt:

@@ -32,6 +32,7 @@ from idml_to_md.translation.openai_client import (
     TranslatorStats,
 )
 from idml_to_md.translation.segment_extractor import extract_segments
+from idml_to_md.translation.title_consistency import sync_toc_with_headings
 from idml_to_md.utils.slugify import slugify
 
 # Estilos que o ``styles.default.yaml`` marca como ``kind: drop`` (corretamente,
@@ -63,6 +64,27 @@ _DEFAULT_COVER_GLOSSARY: dict[str, str] = {
     "Unidade": "Unidad",
 }
 
+# Estilos de parágrafo que são TÍTULO DE CAPÍTULO (nível 1 / starts_chapter no
+# ``styles.default.yaml``) — a fonte da verdade para sincronizar o sumário.
+# Restrito aos títulos de capítulo (não T2/T3) para casar só o que aparece no
+# sumário deste tipo de livro. Sobrescrevível via ``config/translation.yaml``.
+_DEFAULT_CHAPTER_TITLE_STYLES: tuple[str, ...] = (
+    "Títulos:T1",
+    "Títulos:Titulo capítulos",
+    "Títulos:Seção Titulo",
+)
+
+# Estilos de parágrafo das entradas do sumário a sincronizar com os títulos de
+# capítulo. Varia por coleção:
+# - ``Sumario:Item 1``  → entradas de capítulo (ex.: livro 81 Mat. Financeira);
+# - ``Sumario:SUMARIO`` → entradas de capítulo em outras coleções (ex.: Anatomia
+#   Humana). Nesse caso ``Sumario:SUMARIO`` também rotula o cabeçalho "SUMÁRIO"
+#   e "REFERÊNCIAS" — entradas sem título de capítulo correspondente são apenas
+#   ignoradas (viram aviso informativo), sem efeito colateral.
+# Sub-seções (``Sumario:Item 1.1``) não aparecem nesses livros; adicione aqui +
+# os estilos T2/T3 acima para sincronizá-las quando existirem.
+_DEFAULT_TOC_ENTRY_STYLES: tuple[str, ...] = ("Sumario:Item 1", "Sumario:SUMARIO")
+
 
 @dataclass(slots=True)
 class TranslationConfig:
@@ -87,6 +109,10 @@ class TranslationConfig:
     cover_glossary: dict[str, str] = field(
         default_factory=lambda: dict(_DEFAULT_COVER_GLOSSARY)
     )
+    # Sincronização sumário↔títulos de capítulo (passo determinístico pós-LLM).
+    sync_toc_titles: bool = True
+    chapter_title_styles: tuple[str, ...] = _DEFAULT_CHAPTER_TITLE_STYLES
+    toc_entry_styles: tuple[str, ...] = _DEFAULT_TOC_ENTRY_STYLES
 
     @classmethod
     def from_yaml(cls, path: Path) -> TranslationConfig:
@@ -118,6 +144,17 @@ class TranslationConfig:
                 dict(data["cover_glossary"])
                 if "cover_glossary" in data
                 else dict(_DEFAULT_COVER_GLOSSARY)
+            ),
+            sync_toc_titles=data.get("sync_toc_titles", True),
+            chapter_title_styles=(
+                tuple(data["chapter_title_styles"])
+                if "chapter_title_styles" in data
+                else _DEFAULT_CHAPTER_TITLE_STYLES
+            ),
+            toc_entry_styles=(
+                tuple(data["toc_entry_styles"])
+                if "toc_entry_styles" in data
+                else _DEFAULT_TOC_ENTRY_STYLES
             ),
         )
 
@@ -257,6 +294,25 @@ def translate_idml(
         cfg.target_lang,
     )
     translations = translator_client.translate_segments(segments)
+
+    # Sincroniza as entradas do sumário com os títulos de capítulo traduzidos
+    # (determinístico, antes de salvar/escrever). O corpo é a fonte da verdade.
+    toc_sync = None
+    if cfg.sync_toc_titles:
+        toc_sync = sync_toc_with_headings(
+            segments,
+            translations,
+            chapter_title_styles=cfg.chapter_title_styles,
+            toc_entry_styles=cfg.toc_entry_styles,
+        )
+        logger.info(
+            "Sumário sincronizado com títulos de capítulo: {} entrada(s), "
+            "{} sem correspondência, {} conflito(s)",
+            toc_sync.synced,
+            len(toc_sync.unmatched_toc_titles),
+            len(toc_sync.conflicting_headings),
+        )
+
     _save_translations(translations, translations_path)
     logger.info(
         "Tradução concluída: {} OK, {} falhas, ~US$ {:.4f} ({} tokens in / {} out)",
@@ -286,6 +342,8 @@ def translate_idml(
         duration_seconds=time.perf_counter() - started,
     )
     report.model = cfg.model
+    if toc_sync is not None:
+        report.warnings.extend(toc_sync.warnings)
     save_report(report, report_path)
 
     return TranslationResult(

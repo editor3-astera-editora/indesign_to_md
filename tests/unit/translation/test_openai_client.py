@@ -7,7 +7,7 @@ from typing import Any
 
 import pytest
 
-from idml_to_md.translation.models import Segment, SegmentRun, SkipReason
+from idml_to_md.translation.models import Segment, SegmentBoundary, SegmentRun, SkipReason
 from idml_to_md.translation.openai_client import (
     TranslatorClient,
     TranslatorConfig,
@@ -65,7 +65,12 @@ class _FakeOpenAI:
         self.chat = _FakeChat(_FakeCompletions(response_text))
 
 
-def _seg(text: str, sid: str = "u:0", runs: list[SegmentRun] | None = None) -> Segment:
+def _seg(
+    text: str,
+    sid: str = "u:0",
+    runs: list[SegmentRun] | None = None,
+    boundaries: list[SegmentBoundary] | None = None,
+) -> Segment:
     if runs is None:
         runs = [SegmentRun(run_idx=0, content_idx=0, text=text)]
     return Segment(
@@ -73,6 +78,7 @@ def _seg(text: str, sid: str = "u:0", runs: list[SegmentRun] | None = None) -> S
         story_id="u",
         paragraph_idx=int(sid.split(":")[1]),
         runs=runs,
+        boundaries=boundaries or [],
         plain_text=text,
     )
 
@@ -156,12 +162,18 @@ class TestDistributeRuns:
         assert warnings == []
 
     def test_three_contents_each_mapped(self) -> None:  # bug #1
+        # 3 Contents separados por <Br/> → fronteiras impedem o agrupamento
+        # (mesmo "colados", a quebra os separa em runs lógicos distintos).
         seg = _seg(
             "UmDoisTres",
             runs=[
                 SegmentRun(run_idx=0, content_idx=0, text="Um."),
                 SegmentRun(run_idx=0, content_idx=1, text="Dois."),
                 SegmentRun(run_idx=0, content_idx=2, text="Tres."),
+            ],
+            boundaries=[
+                SegmentBoundary(kind="br", after_text_ord=0),
+                SegmentBoundary(kind="br", after_text_ord=1),
             ],
         )
         target = "§t0§Uno.§/t0§§br§§t1§Dos.§/t1§§br§§t2§Tres.§/t2§"
@@ -184,6 +196,68 @@ class TestDistributeRuns:
         assert new_runs[0].text == "X "
         assert new_runs[1].text == "B"  # original mantido (não some, não duplica)
         assert new_runs[2].text == " Z"
+        assert any("§t1§" in w for w in warnings)
+
+    def test_midword_split_merged_and_distributed(self) -> None:
+        # "Sistema " + "circulat"(bold) + "ório"(bold): os 2 colados + mesma
+        # formatação = 1 grupo lógico. A tradução vai no 1º run, 2º esvaziado.
+        seg = _seg(
+            "Sistema circulatório",
+            runs=[
+                SegmentRun(run_idx=0, content_idx=0, text="Sistema "),
+                SegmentRun(run_idx=1, content_idx=0, text="circulat", bold=True),
+                SegmentRun(run_idx=2, content_idx=0, text="ório", bold=True),
+            ],
+        )
+        target = "§t0§Sistema §/t0§§t1§circulatorio§/t1§"
+        new_runs, warnings = _distribute_runs(seg, target)
+        assert [r.text for r in new_runs] == ["Sistema ", "circulatorio", ""]
+        assert warnings == []
+
+    def test_missing_marker_recovers_bare_translation(self) -> None:
+        # A LLM traduziu mas "esqueceu" o §t1§: o texto solto é recuperado
+        # (mantém a tradução em vez de cair para o PT).
+        seg = _seg(
+            "Sistema circulatório",
+            runs=[
+                SegmentRun(run_idx=0, content_idx=0, text="Sistema "),
+                SegmentRun(run_idx=1, content_idx=0, text="circulat", bold=True),
+                SegmentRun(run_idx=2, content_idx=0, text="ório", bold=True),
+            ],
+        )
+        target = "§t0§Sistema §/t0§circulatorio"  # §t1§ perdido, mas tradução presente
+        new_runs, warnings = _distribute_runs(seg, target)
+        assert [r.text for r in new_runs] == ["Sistema ", "circulatorio", ""]
+        assert any("recuperado" in w for w in warnings)
+
+    def test_missing_marker_recovers_bare_in_order(self) -> None:
+        # Dois grupos sem marcador, dois trechos soltos → casa por ordem.
+        seg = _seg(
+            "A B C",
+            runs=[
+                SegmentRun(run_idx=0, content_idx=0, text="A "),
+                SegmentRun(run_idx=1, content_idx=0, text="B", bold=True),
+                SegmentRun(run_idx=2, content_idx=0, text=" C"),
+            ],
+        )
+        target = "X §t1§Y§/t1§ Z"  # t0 e t2 perdidos; "X" e "Z" soltos, na ordem
+        new_runs, _ = _distribute_runs(seg, target)
+        assert [r.text for r in new_runs] == ["X", "Y", "Z"]
+
+    def test_midword_group_missing_marker_consolidates(self) -> None:
+        # Grupo lógico sem marcador → consolida o ORIGINAL no 1º run e esvazia o
+        # resto (nunca deixa fragmento PT solto: evita "circulatorioório").
+        seg = _seg(
+            "Sistema circulatório",
+            runs=[
+                SegmentRun(run_idx=0, content_idx=0, text="Sistema "),
+                SegmentRun(run_idx=1, content_idx=0, text="circulat", bold=True),
+                SegmentRun(run_idx=2, content_idx=0, text="ório", bold=True),
+            ],
+        )
+        target = "§t0§Sistema §/t0§"  # falta o marcador do grupo [circulat+ório]
+        new_runs, warnings = _distribute_runs(seg, target)
+        assert [r.text for r in new_runs] == ["Sistema ", "circulatório", ""]
         assert any("§t1§" in w for w in warnings)
 
     def test_empty_inner_marker_yields_empty_run(self) -> None:

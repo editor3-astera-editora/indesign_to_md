@@ -79,6 +79,8 @@ Indesign_exemplos/Links/Thumbs.db
 # Pastas de livros (assets editoriais grandes: .eps, .jpg, .pdf, .indd, .psd, fontes...)
 Input/
 Output/
+FEITOS/
 
 
 *.tff
+*.txt

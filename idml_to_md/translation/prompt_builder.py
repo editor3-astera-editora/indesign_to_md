@@ -59,6 +59,54 @@ def anchor_marker(anchor_ord: int) -> str:
     return f"{PH_OPEN}{PH_ANCHOR_PREFIX}{anchor_ord}{PH_CLOSE}"
 
 
+def group_logical_runs(
+    runs: list[SegmentRun], boundaries: list  # list[SegmentBoundary]
+) -> list[list[int]]:
+    """Agrupa índices de runs físicos em runs LÓGICOS para a tradução.
+
+    A InDesign às vezes parte uma palavra em vários ``<Content>`` (ex.:
+    ``"circulat"`` + ``"ório"``, geralmente por causa de um CharacterStyle
+    aplicado a parte da palavra). Traduzir esses pedaços isoladamente quebra
+    (a LLM devolve a palavra inteira num pedaço e deixa o outro intacto → "PT
+    vazado"/duplicado). Esta função junta runs adjacentes que estão **colados**
+    (sem espaço entre eles), têm a **mesma formatação** e **nenhuma fronteira**
+    (``<Br/>``/âncora) entre eles — i.e., pedaços da MESMA palavra. Cada grupo
+    vira UM marcador ``§tN§``; a remontagem põe a tradução no 1º run do grupo e
+    esvazia os demais.
+
+    Runs separados por espaço (fronteira de palavra) ou com formatação distinta
+    (negrito/itálico/sobrescrito/CharacterStyle) NÃO são juntados — preserva o
+    esquema posicional já existente (sobrescritos, negrito parcial, etc.).
+    Quando não há nada para juntar, o resultado é ``[[0],[1],…]`` (1 grupo por
+    run) — comportamento idêntico ao anterior.
+    """
+    if not runs:
+        return []
+    bound_after = {b.after_text_ord for b in boundaries}
+    groups: list[list[int]] = [[0]]
+    for i in range(1, len(runs)):
+        prev, cur = runs[i - 1], runs[i]
+        glued = (
+            bool(prev.text)
+            and bool(cur.text)
+            and not prev.text[-1].isspace()
+            and not cur.text[0].isspace()
+        )
+        same_fmt = (
+            prev.bold == cur.bold
+            and prev.italic == cur.italic
+            and prev.superscript == cur.superscript
+            and prev.subscript == cur.subscript
+            and prev.character_style == cur.character_style
+        )
+        no_boundary = (i - 1) not in bound_after
+        if glued and same_fmt and no_boundary:
+            groups[-1].append(i)
+        else:
+            groups.append([i])
+    return groups
+
+
 def build_segment_text_with_placeholders(seg: Segment) -> str:
     """Renderiza o segmento como texto com marcadores posicionais.
 
@@ -66,11 +114,11 @@ def build_segment_text_with_placeholders(seg: Segment) -> str:
     significativas (caso comum), o texto vai cru, sem marcadores.
 
     Caso estruturado (vários runs, negrito no meio, quebras entre textos, ou
-    fórmula entre textos): cada run de texto vira ``§tN§…§/tN§`` (N = índice do
-    run em ``seg.runs``), cada ``<Br/>`` vira ``§br§`` e cada objeto ancorado
-    vira ``§aN§``, tudo em ordem de documento. Assim a remontagem
-    (``_distribute_runs``) reposiciona o texto traduzido por POSIÇÃO, não
-    "tudo no primeiro run".
+    fórmula entre textos): cada run LÓGICO (ver :func:`group_logical_runs`) vira
+    ``§tN§…§/tN§`` (N = índice do grupo lógico), cada ``<Br/>`` vira ``§br§`` e
+    cada objeto ancorado vira ``§aN§``, tudo em ordem de documento. Assim a
+    remontagem (``_distribute_runs``) reposiciona o texto traduzido por POSIÇÃO,
+    não "tudo no primeiro run".
     """
     runs = seg.runs
     boundaries = seg.boundaries
@@ -78,6 +126,7 @@ def build_segment_text_with_placeholders(seg: Segment) -> str:
     if not _is_structured(runs, boundaries):
         return "".join(r.text for r in runs)
 
+    groups = group_logical_runs(runs, boundaries)
     parts: list[str] = []
 
     def emit_boundaries(after: int) -> None:
@@ -87,12 +136,14 @@ def build_segment_text_with_placeholders(seg: Segment) -> str:
             parts.append(PH_BR if b.kind == "br" else anchor_marker(b.anchor_ord))
 
     emit_boundaries(-1)
-    for i, run in enumerate(runs):
-        if run.text:
+    for gi, group in enumerate(groups):
+        text = "".join(runs[k].text for k in group)
+        if text:
             parts.append(
-                f"{text_run_marker_open(i)}{run.text}{text_run_marker_close(i)}"
+                f"{text_run_marker_open(gi)}{text}{text_run_marker_close(gi)}"
             )
-        emit_boundaries(i)
+        for k in group:  # fronteiras caem sempre no fim de um grupo
+            emit_boundaries(k)
     return "".join(parts)
 
 
